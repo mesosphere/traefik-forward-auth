@@ -1,11 +1,14 @@
 package tfa
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 
 	"github.com/containous/traefik/pkg/rules"
+	"github.com/coreos/go-oidc"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 )
 
 type Server struct {
@@ -115,7 +118,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Check for CSRF cookie
 		c, err := r.Cookie(config.CSRFCookieName)
 		if err != nil {
-			logger.Warn("Missing csrf cookie")
+			logger.Warnf("Missing CSRF cookie: %v", err)
 			http.Error(w, "Not authorized", 401)
 			return
 		}
@@ -123,7 +126,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Validate state
 		valid, redirect, err := ValidateCSRFCookie(r, c)
 		if !valid {
-			logger.Warnf("Error validating csrf cookie: %v", err)
+			logger.Warnf("Error validating CSRF cookie: %v", err)
 			http.Error(w, "Not authorized", 401)
 			return
 		}
@@ -131,25 +134,56 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Clear CSRF cookie
 		http.SetCookie(w, ClearCSRFCookie(r))
 
+		provider := config.OIDCProvider
+
+		oauth2Config := oauth2.Config{
+			ClientID:     config.ClientId,
+			ClientSecret: config.ClientSecret,
+			RedirectURL:  redirectUri(r),
+			Endpoint:     provider.Endpoint(),
+			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+		}
+
 		// Exchange code for token
-		token, err := ExchangeCode(r)
+		oauth2Token, err := oauth2Config.Exchange(config.OIDCContext, r.URL.Query().Get("code"))
 		if err != nil {
-			logger.Errorf("Code exchange failed with: %v", err)
-			http.Error(w, "Service unavailable", 503)
+			logger.Warnf("failed to exchange token: %v", err)
+			http.Error(w, "Not authorized", 401)
 			return
 		}
 
-		// Get user
-		user, err := GetUser(token)
+		// Extract the ID Token from OAuth2 token.
+		rawIDToken, ok := oauth2Token.Extra("id_token").(string)
+		if !ok {
+			logger.Warnf("missing ID token: %v", err)
+			http.Error(w, "Not authorized", 401)
+			return
+		}
+
+		// Parse and verify ID Token payload.
+		verifier := provider.Verifier(&oidc.Config{ClientID: config.ClientId})
+		idToken, err := verifier.Verify(config.OIDCContext, rawIDToken)
 		if err != nil {
-			logger.Errorf("Error getting user: %s", err)
+			logger.Warnf("failed to verify token: %v", err)
+			http.Error(w, "Not authorized", 401)
+			return
+		}
+
+		// Extract custom claims
+		var claims struct {
+			Email    string `json:"email"`
+			Verified bool   `json:"email_verified"`
+		}
+		if err := idToken.Claims(&claims); err != nil {
+			logger.Warnf("failed to extract claims: %v", err)
+			http.Error(w, "Not authorized", 401)
 			return
 		}
 
 		// Generate cookie
-		http.SetCookie(w, MakeCookie(r, user.Email))
+		http.SetCookie(w, MakeCookie(r, claims.Email))
 		logger.WithFields(logrus.Fields{
-			"user": user.Email,
+			"user": claims.Email,
 		}).Infof("Generated auth cookie")
 
 		// Redirect
@@ -168,10 +202,20 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 
 	// Set the CSRF cookie
 	http.SetCookie(w, MakeCSRFCookie(r, nonce))
-	logger.Debug("Set CSRF cookie and redirecting to google login")
+	logger.Debug("Set CSRF cookie and redirect to OIDC login")
 
-	// Forward them on
-	http.Redirect(w, r, GetLoginURL(r, nonce), http.StatusTemporaryRedirect)
+	log.Debug("config: %v", config)
+	oauth2Config := oauth2.Config{
+		ClientID:     config.ClientId,
+		ClientSecret: config.ClientSecret,
+		RedirectURL:  redirectUri(r),
+		Endpoint:     config.OIDCProvider.Endpoint(),
+		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+	}
+
+	state := fmt.Sprintf("%s:%s", nonce, returnUrl(r))
+
+	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
 
 	logger.Debug("Done")
 	return

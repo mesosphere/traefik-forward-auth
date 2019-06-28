@@ -2,28 +2,33 @@ package tfa
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/url"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/coreos/go-oidc"
 	"github.com/thomseddon/go-flags"
-	"github.com/thomseddon/traefik-forward-auth/internal/provider"
+	"golang.org/x/oauth2"
 )
 
-var config Config
+var config *Config
 
 type Config struct {
 	LogLevel  string `long:"log-level" env:"LOG_LEVEL" default:"warn" choice:"trace" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" choice:"panic" description:"Log level"`
 	LogFormat string `long:"log-format"  env:"LOG_FORMAT" default:"text" choice:"text" choice:"json" choice:"pretty" description:"Log format"`
 
+	ProviderUri    string `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
+	ClientId       string `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
+	ClientSecret   string `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
+	Scope          string
 	AuthHost       string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
 	Config         func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
 	CookieDomains  []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
@@ -37,23 +42,16 @@ type Config struct {
 	SecretString   string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
 	Whitelist      CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
 
-	Providers provider.Providers `group:"providers" namespace:"providers" env-namespace:"PROVIDERS"`
-	Rules     map[string]*Rule   `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
+	Rules map[string]*Rule `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
 
 	// Filled during transformations
-	Secret   []byte `json:"-"`
-	Lifetime time.Duration
-
-	// Legacy
-	CookieDomainsLegacy CookieDomains `long:"cookie-domains" env:"COOKIE_DOMAINS" description:"DEPRECATED - Use \"cookie-domain\""`
-	CookieSecretLegacy  string        `long:"cookie-secret" env:"COOKIE_SECRET" description:"DEPRECATED - Use \"secret\""  json:"-"`
-	CookieSecureLegacy  string        `long:"cookie-secure" env:"COOKIE_SECURE" description:"DEPRECATED - Use \"insecure-cookie\""`
-	ClientIdLegacy      string        `long:"client-id" env:"CLIENT_ID" group:"DEPs" description:"DEPRECATED - Use \"providers.google.client-id\""`
-	ClientSecretLegacy  string        `long:"client-secret" env:"CLIENT_SECRET" description:"DEPRECATED - Use \"providers.google.client-id\""  json:"-"`
-	PromptLegacy        string        `long:"prompt" env:"PROMPT" description:"DEPRECATED - Use \"providers.google.prompt\""`
+	OIDCContext  context.Context
+	OIDCProvider *oidc.Provider
+	Secret       []byte `json:"-"`
+	Lifetime     time.Duration
 }
 
-func NewGlobalConfig() Config {
+func NewGlobalConfig() *Config {
 	var err error
 	config, err = NewConfig(os.Args[1:])
 	if err != nil {
@@ -64,75 +62,14 @@ func NewGlobalConfig() Config {
 	return config
 }
 
-func NewConfig(args []string) (Config, error) {
+func NewConfig(args []string) (*Config, error) {
 	c := Config{
 		Rules: map[string]*Rule{},
-		Providers: provider.Providers{
-			Google: provider.Google{
-				Scope: "https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
-				LoginURL: &url.URL{
-					Scheme: "https",
-					Host:   "accounts.google.com",
-					Path:   "/o/oauth2/auth",
-				},
-				TokenURL: &url.URL{
-					Scheme: "https",
-					Host:   "www.googleapis.com",
-					Path:   "/oauth2/v3/token",
-				},
-				UserURL: &url.URL{
-					Scheme: "https",
-					Host:   "www.googleapis.com",
-					Path:   "/oauth2/v2/userinfo",
-				},
-			},
-		},
 	}
 
 	err := c.parseFlags(args)
-	if err != nil {
-		return c, err
-	}
 
-	// TODO: as log flags have now been parsed maybe we should return here so
-	// any further errors can be logged via logrus instead of printed?
-
-	// Backwards compatability
-	if c.CookieSecretLegacy != "" && c.SecretString == "" {
-		fmt.Println("cookie-secret config option is deprecated, please use secret")
-		c.SecretString = c.CookieSecretLegacy
-	}
-	if c.ClientIdLegacy != "" {
-		c.Providers.Google.ClientId = c.ClientIdLegacy
-	}
-	if c.ClientSecretLegacy != "" {
-		c.Providers.Google.ClientSecret = c.ClientSecretLegacy
-	}
-	if c.PromptLegacy != "" {
-		fmt.Println("prompt config option is deprecated, please use providers.google.prompt")
-		c.Providers.Google.Prompt = c.PromptLegacy
-	}
-	if c.CookieSecureLegacy != "" {
-		fmt.Println("cookie-secure config option is deprecated, please use insecure-cookie")
-		secure, err := strconv.ParseBool(c.CookieSecureLegacy)
-		if err != nil {
-			return c, err
-		}
-		c.InsecureCookie = !secure
-	}
-	if len(c.CookieDomainsLegacy) > 0 {
-		fmt.Println("cookie-domains config option is deprecated, please use cookie-domain")
-		c.CookieDomains = append(c.CookieDomains, c.CookieDomainsLegacy...)
-	}
-
-	// Transformations
-	if len(c.Path) > 0 && c.Path[0] != '/' {
-		c.Path = "/" + c.Path
-	}
-	c.Secret = []byte(c.SecretString)
-	c.Lifetime = time.Second * time.Duration(c.LifetimeString)
-
-	return c, nil
+	return &c, err
 }
 
 func (c *Config) parseFlags(args []string) error {
@@ -161,7 +98,7 @@ func (c *Config) parseFlags(args []string) error {
 
 	_, err := p.ParseArgs(args)
 	if err != nil {
-		return handlFlagError(err)
+		return handleFlagError(err)
 	}
 
 	return nil
@@ -211,10 +148,8 @@ func (c *Config) parseUnknownFlag(option string, arg flags.SplitArgument, args [
 			rule.Action = val
 		case "rule":
 			rule.Rule = val
-		case "provider":
-			rule.Provider = val
 		default:
-			return args, fmt.Errorf("inavlid route param: %v", option)
+			return args, fmt.Errorf("invalid route param: %v", option)
 		}
 	} else {
 		return args, fmt.Errorf("unknown flag: %v", option)
@@ -223,7 +158,7 @@ func (c *Config) parseUnknownFlag(option string, arg flags.SplitArgument, args [
 	return args, nil
 }
 
-func handlFlagError(err error) error {
+func handleFlagError(err error) error {
 	flagsErr, ok := err.(*flags.Error)
 	if ok && flagsErr.Type == flags.ErrHelp {
 		// Library has just printed cli help
@@ -246,18 +181,34 @@ func convertLegacyToIni(name string) (io.Reader, error) {
 
 func (c *Config) Validate() {
 	// Check for show stopper errors
-	if len(c.Secret) == 0 {
+	if len(c.SecretString) == 0 {
 		log.Fatal("\"secret\" option must be set.")
 	}
 
-	if c.Providers.Google.ClientId == "" || c.Providers.Google.ClientSecret == "" {
-		log.Fatal("providers.google.client-id, providers.google.client-secret must be set")
+	if c.ProviderUri == "" || c.ClientId == "" || c.ClientSecret == "" {
+		log.Fatal("provider-uri, client-id, client-secret must be set")
 	}
 
 	// Check rules
 	for _, rule := range c.Rules {
 		rule.Validate()
 	}
+
+	// Transformations
+	if len(c.Path) > 0 && c.Path[0] != '/' {
+		c.Path = "/" + c.Path
+	}
+	c.Secret = []byte(c.SecretString)
+	c.Lifetime = time.Second * time.Duration(c.LifetimeString)
+
+	// Fetch OIDC Provider configuration
+	c.OIDCContext = oauth2.NoContext
+	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderUri)
+	if err != nil {
+		log.Fatal("failed to get provider configuration: %v", err)
+	}
+	log.Infof("Provider: %v", provider)
+	c.OIDCProvider = provider
 }
 
 func (c Config) String() string {
@@ -266,15 +217,13 @@ func (c Config) String() string {
 }
 
 type Rule struct {
-	Action   string
-	Rule     string
-	Provider string
+	Action string
+	Rule   string
 }
 
 func NewRule() *Rule {
 	return &Rule{
-		Action:   "auth",
-		Provider: "google", // TODO: Use default provider
+		Action: "auth",
 	}
 }
 
@@ -287,11 +236,6 @@ func (r *Rule) formattedRule() string {
 func (r *Rule) Validate() {
 	if r.Action != "auth" && r.Action != "allow" {
 		log.Fatal("invalid rule action, must be \"auth\" or \"allow\"")
-	}
-
-	// TODO: Update with more provider support
-	if r.Provider != "google" {
-		log.Fatal("invalid rule provider, must be \"google\"")
 	}
 }
 
