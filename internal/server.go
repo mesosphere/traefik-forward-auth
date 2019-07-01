@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/containous/traefik/pkg/rules"
 	"github.com/coreos/go-oidc"
@@ -61,7 +62,7 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 // Handler that allows requests
 func (s *Server) AllowHandler(rule string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		s.logger(r, rule, "Allowing request")
+		s.logger(r, rule, "Allow request")
 		w.WriteHeader(200)
 	}
 }
@@ -70,12 +71,12 @@ func (s *Server) AllowHandler(rule string) http.HandlerFunc {
 func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Logging setup
-		logger := s.logger(r, rule, "Authenticating request")
+		logger := s.logger(r, rule, "Authenticate request")
 
 		// Get auth cookie
 		c, err := r.Cookie(config.CookieName)
 		if err != nil {
-			s.authRedirect(logger, w, r)
+			s.notAuthenticated(logger, w, r)
 			return
 		}
 
@@ -84,7 +85,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		if err != nil {
 			if err.Error() == "Cookie has expired" {
 				logger.Info("Cookie has expired")
-				s.authRedirect(logger, w, r)
+				s.notAuthenticated(logger, w, r)
 			} else {
 				logger.Errorf("Invalid cookie: %v", err)
 				http.Error(w, "Not authorized", 401)
@@ -191,6 +192,21 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 	}
 }
 
+func (s *Server) notAuthenticated(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) {
+	// Redirect if request accepts HTML. Fail if request is AJAX, image, etc
+	acceptHeader := r.Header.Get("Accept")
+	acceptParts := strings.Split(acceptHeader, ",")
+	for i, acceptPart := range acceptParts {
+		format := strings.Trim(strings.SplitN(acceptPart, ";", 2)[0], " ")
+		if format == "text/html" || (i == 0 && format == "*/*") {
+			s.authRedirect(logger, w, r)
+			return
+		}
+	}
+	logger.Warnf("Non-HTML request: %v", acceptHeader)
+	http.Error(w, "Authentication expired. Reload page to re-authenticate.", 401)
+}
+
 func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) {
 	// Error indicates no cookie, generate nonce
 	err, nonce := Nonce()
@@ -204,7 +220,6 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 	http.SetCookie(w, MakeCSRFCookie(r, nonce))
 	logger.Debug("Set CSRF cookie and redirect to OIDC login")
 
-	log.Debug("config: %v", config)
 	oauth2Config := oauth2.Config{
 		ClientID:     config.ClientId,
 		ClientSecret: config.ClientSecret,
@@ -217,7 +232,6 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
 
-	logger.Debug("Done")
 	return
 }
 

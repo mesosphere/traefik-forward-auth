@@ -207,7 +207,6 @@ func (c *Config) Validate() {
 	if err != nil {
 		log.Fatal("failed to get provider configuration: %v", err)
 	}
-	log.Infof("Provider: %v", provider)
 	c.OIDCProvider = provider
 }
 
