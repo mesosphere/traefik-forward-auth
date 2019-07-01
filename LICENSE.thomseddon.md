@@ -1,3 +1,5 @@
+The code forked from https://github.com/thomseddon/traefik-forward-auth is licensed under the:
+
 MIT License
 
 Copyright (c) [2018] [Thom Seddon]
