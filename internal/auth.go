@@ -125,7 +125,7 @@ func useAuthDomain(r *http.Request) (bool, string) {
 // Cookie methods
 
 // Create an auth cookie
-func MakeCookie(r *http.Request, email string) *http.Cookie {
+func MakeIDCookie(r *http.Request, email string) *http.Cookie {
 	expires := cookieExpiry()
 	mac := cookieSignature(r, email, fmt.Sprintf("%d", expires.Unix()))
 	value := fmt.Sprintf("%s|%d|%s", mac, expires.Unix(), email)
@@ -137,6 +137,21 @@ func MakeCookie(r *http.Request, email string) *http.Cookie {
 		Domain:   cookieDomain(r),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
+		Expires:  expires,
+	}
+}
+
+// Create a name cookie
+func MakeNameCookie(r *http.Request, name string) *http.Cookie {
+	expires := cookieExpiry()
+
+	return &http.Cookie{
+		Name:     config.UserCookieName,
+		Value:    name,
+		Path:     "/",
+		Domain:   cookieDomain(r),
+		HttpOnly: false,
+		Secure:   false,
 		Expires:  expires,
 	}
 }

@@ -17,3 +17,4 @@ The instructions for [`thomseddon/traefik-forward-auth`](https://github.com/thom
 - Uses an OIDC Discovery endpoint to find authorization and token endpoints.
 - Does not require the OIDC Provider to support the optional UserInfo endpoint.
 - Returns 401 rather than redirect to OIDC Login if an unauthenticated request is not for HTML (e.g. AJAX calls, images).
+- Sends a username cookie as well

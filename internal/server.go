@@ -172,6 +172,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 
 		// Extract custom claims
 		var claims struct {
+			Name     string `json:"name"`
 			Email    string `json:"email"`
 			Verified bool   `json:"email_verified"`
 		}
@@ -181,11 +182,16 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			return
 		}
 
-		// Generate cookie
-		http.SetCookie(w, MakeCookie(r, claims.Email))
+		// Generate cookies
+		http.SetCookie(w, MakeIDCookie(r, claims.Email))
 		logger.WithFields(logrus.Fields{
 			"user": claims.Email,
 		}).Infof("Generated auth cookie")
+
+		http.SetCookie(w, MakeNameCookie(r, claims.Name))
+		logger.WithFields(logrus.Fields{
+			"name": claims.Name,
+		}).Infof("Generated name cookie")
 
 		// Redirect
 		http.Redirect(w, r, redirect, http.StatusTemporaryRedirect)
