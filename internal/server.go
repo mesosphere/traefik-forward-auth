@@ -104,7 +104,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Valid request
-		logger.Debugf("Allowing valid request ")
+		logger.Debugf("Allow request from %s", email)
 		w.Header().Set("X-Forwarded-User", email)
 		w.WriteHeader(200)
 	}
@@ -149,7 +149,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		oauth2Token, err := oauth2Config.Exchange(config.OIDCContext, r.URL.Query().Get("code"))
 		if err != nil {
 			logger.Warnf("failed to exchange token: %v", err)
-			http.Error(w, "Not authorized", 401)
+			http.Error(w, "Bad Gateway", 502)
 			return
 		}
 
@@ -157,7 +157,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 		if !ok {
 			logger.Warnf("missing ID token: %v", err)
-			http.Error(w, "Not authorized", 401)
+			http.Error(w, "Bad Gateway", 502)
 			return
 		}
 
@@ -166,7 +166,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		idToken, err := verifier.Verify(config.OIDCContext, rawIDToken)
 		if err != nil {
 			logger.Warnf("failed to verify token: %v", err)
-			http.Error(w, "Not authorized", 401)
+			http.Error(w, "Bad Gateway", 502)
 			return
 		}
 
@@ -178,7 +178,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 		if err := idToken.Claims(&claims); err != nil {
 			logger.Warnf("failed to extract claims: %v", err)
-			http.Error(w, "Not authorized", 401)
+			http.Error(w, "Bad Gateway", 502)
 			return
 		}
 
