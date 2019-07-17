@@ -91,7 +91,7 @@ func redirectBase(r *http.Request) string {
 
 // // Return url
 func returnUrl(r *http.Request) string {
-	path := r.Header.Get("X-Forwarded-Uri")
+	path := r.Header.Get("X-Forwarded-Prefix") + r.Header.Get("X-Forwarded-Uri")
 
 	return fmt.Sprintf("%s%s", redirectBase(r), path)
 }
