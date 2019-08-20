@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -89,11 +90,19 @@ func redirectBase(r *http.Request) string {
 	return fmt.Sprintf("%s://%s", proto, host)
 }
 
+func GetUriPath(r *http.Request) string {
+	prefix := r.Header.Get("X-Forwarded-Prefix")
+	uri := r.Header.Get("X-Forwarded-Uri")
+	p := path.Join(prefix, uri)
+	if strings.HasSuffix(uri, "/") {
+		p += "/"
+	}
+	return p
+}
+
 // // Return url
 func returnUrl(r *http.Request) string {
-	path := r.Header.Get("X-Forwarded-Prefix") + r.Header.Get("X-Forwarded-Uri")
-
-	return fmt.Sprintf("%s%s", redirectBase(r), path)
+	return fmt.Sprintf("%s%s", redirectBase(r), GetUriPath(r))
 }
 
 // Get oauth redirect uri

@@ -53,11 +53,27 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 	// Modify request
 	r.Method = r.Header.Get("X-Forwarded-Method")
 	r.Host = r.Header.Get("X-Forwarded-Host")
-	combined := r.Header.Get("X-Forwarded-Prefix") + r.Header.Get("X-Forwarded-Uri")
-	r.URL, _ = url.Parse(combined)
+	r.URL, _ = url.Parse(GetUriPath(r))
 
-	// Pass to mux
-	s.router.ServeHTTP(w, r)
+	if config.AuthHost == "" || config.AuthHost == r.Host {
+		s.router.ServeHTTP(w, r)
+	} else {
+		// authHost exists and defines the host for the redirect URL. Since
+		// request host does not match, any cookies cannot be set from the
+		// redirect URI. Redirect the client to the authHost.
+		logger := log.WithFields(logrus.Fields{
+			"X-Forwarded-Method": r.Header.Get("X-Forwarded-Method"),
+			"X-Forwarded-Proto":  r.Header.Get("X-Forwarded-Proto"),
+			"X-Forwarded-Host":   r.Header.Get("X-Forwarded-Host"),
+			"X-Forwarded-Prefix": r.Header.Get("X-Forwarded-Prefix"),
+			"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
+		})
+		url := r.URL
+		url.Scheme = r.Header.Get("X-Forwarded-Proto")
+		url.Host = config.AuthHost
+		logger.Debug("Redirect to %v", url.String())
+		http.Redirect(w, r, url.String(), 307)
+	}
 }
 
 // Handler that allows requests
