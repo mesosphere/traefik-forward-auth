@@ -203,7 +203,13 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			"user": claims.Email,
 		}).Infof("Generated auth cookie")
 
-		http.SetCookie(w, MakeNameCookie(r, claims.Name))
+		// If name is empty or whitespace, use email address for name
+		name := claims.Name
+		if strings.TrimSpace(name) == "" {
+			name = claims.Email
+		}
+
+		http.SetCookie(w, MakeNameCookie(r, name))
 		logger.WithFields(logrus.Fields{
 			"name": claims.Name,
 		}).Infof("Generated name cookie")
