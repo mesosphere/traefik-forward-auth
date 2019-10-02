@@ -18,4 +18,4 @@ The instructions for [`thomseddon/traefik-forward-auth`](https://github.com/thom
 - Does not require the OIDC Provider to support the optional UserInfo endpoint.
 - Returns 401 rather than redirect to OIDC Login if an unauthenticated request is not for HTML (e.g. AJAX calls, images).
 - Sends a username cookie as well
-- If `auth-host` is set, any requests to other hosts will be redirected to `auth-host`. Set `auth-host` to the redirect host to ensure that use of the IP or other DNS names will be redirected and get a suitable cookie.  The original use of `auth-host` from `thomseddon/traefik-forward-auth` is not supported.
+- If `auth-host` is set and `cookie-domains` is not set, traefik-forward-auth will redirect any requests using other hostnames to `auth-host`. Set `auth-host` to the OIDC redirect host to ensure that use of the IP or other DNS names will be redirected and get a suitable cookie.

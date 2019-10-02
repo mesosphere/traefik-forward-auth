@@ -55,12 +55,10 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 	r.Host = r.Header.Get("X-Forwarded-Host")
 	r.URL, _ = url.Parse(GetUriPath(r))
 
-	if config.AuthHost == "" || config.AuthHost == r.Host {
+	if config.AuthHost == "" || len(config.CookieDomains) > 0 || r.Host == config.AuthHost {
 		s.router.ServeHTTP(w, r)
 	} else {
-		// authHost exists and defines the host for the redirect URL. Since
-		// request host does not match, any cookies cannot be set from the
-		// redirect URI. Redirect the client to the authHost.
+		// Redirect the client to the authHost.
 		logger := log.WithFields(logrus.Fields{
 			"X-Forwarded-Method": r.Header.Get("X-Forwarded-Method"),
 			"X-Forwarded-Proto":  r.Header.Get("X-Forwarded-Proto"),
