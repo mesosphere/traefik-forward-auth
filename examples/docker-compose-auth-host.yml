@@ -23,7 +23,7 @@ services:
       - "traefik.frontend.rule=Host:whoami.yourdomain.com"
 
   traefik-forward-auth:
-    image: thomseddon/traefik-forward-auth
+    image: mesosphere/traefik-forward-auth
     environment:
       - PROVIDERS_GOOGLE_CLIENT_ID=your-client-id
       - PROVIDERS_GOOGLE_CLIENT_SECRET=your-client-secret

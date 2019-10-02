@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	internal "github.com/jongiddy/traefik-forward-auth/internal"
+	internal "github.com/mesosphere/traefik-forward-auth/internal"
 )
 
 // Main

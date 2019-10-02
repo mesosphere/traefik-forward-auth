@@ -1,4 +1,4 @@
-module github.com/jongiddy/traefik-forward-auth
+module github.com/mesosphere/traefik-forward-auth
 
 go 1.12
 
