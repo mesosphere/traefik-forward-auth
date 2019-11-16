@@ -70,7 +70,7 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 		url.Scheme = r.Header.Get("X-Forwarded-Proto")
 		url.Host = config.AuthHost
 		logger.Debug("Redirect to %v", url.String())
-		http.Redirect(w, r, url.String(), 307)
+		http.Redirect(w, r, url.String(), http.StatusTemporaryRedirect)
 	}
 }
 
