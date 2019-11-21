@@ -2,6 +2,7 @@ package tfa
 
 import (
 	"fmt"
+	"github.com/gorilla/sessions"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,13 +13,21 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	tokenSession = "_bearer_token_session"
+	tokenKey     = "_token"
+)
+
+
 type Server struct {
 	router *rules.Router
+	store *sessions.CookieStore
 }
 
 func NewServer() *Server {
 	s := &Server{}
 	s.buildRoutes()
+	s.store = sessions.NewCookieStore([]byte(config.SessionKey))
 	return s
 }
 
@@ -50,22 +59,33 @@ func (s *Server) buildRoutes() {
 }
 
 func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
+	logger := log.WithFields(logrus.Fields{
+		"X-Forwarded-Method": r.Header.Get("X-Forwarded-Method"),
+		"X-Forwarded-Proto":  r.Header.Get("X-Forwarded-Proto"),
+		"X-Forwarded-Host":   r.Header.Get("X-Forwarded-Host"),
+		"X-Forwarded-Prefix": r.Header.Get("X-Forwarded-Prefix"),
+		"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
+	})
+
 	// Modify request
 	r.Method = r.Header.Get("X-Forwarded-Method")
 	r.Host = r.Header.Get("X-Forwarded-Host")
 	r.URL, _ = url.Parse(GetUriPath(r))
 
+	if config.PassAuthorization {
+		logger.Debug("pass_authorization enabled, creating token session")
+		if err := s.createTokenSession(w, r); err != nil {
+			logger.Errorf("error creating token session: %w", err)
+		}
+	} else {
+		logger.Debug("pass_authorization not enabled")
+	}
+
 	if config.AuthHost == "" || len(config.CookieDomains) > 0 || r.Host == config.AuthHost {
 		s.router.ServeHTTP(w, r)
 	} else {
 		// Redirect the client to the authHost.
-		logger := log.WithFields(logrus.Fields{
-			"X-Forwarded-Method": r.Header.Get("X-Forwarded-Method"),
-			"X-Forwarded-Proto":  r.Header.Get("X-Forwarded-Proto"),
-			"X-Forwarded-Host":   r.Header.Get("X-Forwarded-Host"),
-			"X-Forwarded-Prefix": r.Header.Get("X-Forwarded-Prefix"),
-			"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
-		})
+
 		url := r.URL
 		url.Scheme = r.Header.Get("X-Forwarded-Proto")
 		url.Host = config.AuthHost
@@ -121,6 +141,18 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		// Valid request
 		logger.Debugf("Allow request from %s", email)
 		w.Header().Set("X-Forwarded-User", email)
+
+		// Check for token in session
+		token, err := s.getTokenFromSession(r)
+		if err != nil {
+			logger.Errorf("error getting token from session: %w", err)
+			http.Error(w, "Bad Gateway", 502)
+			return
+		}
+		if token != "" {
+			// Set the Authorization header if the token exists
+			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", token))
+		}
 		w.WriteHeader(200)
 	}
 }
@@ -214,6 +246,14 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			"name": claims.Name,
 		}).Infof("Generated name cookie")
 
+		// Save the token is PassAuthorization is enabled
+		if config.PassAuthorization {
+			if err := s.saveToken(w, r, rawIDToken); err != nil {
+				logger.Errorf("error saving id token: %w", err)
+				http.Error(w, "Bad Gateway", 502)
+				return
+			}
+		}
 		// Redirect
 		http.Redirect(w, r, redirect, http.StatusTemporaryRedirect)
 	}
@@ -275,4 +315,53 @@ func (s *Server) logger(r *http.Request, rule, msg string) *logrus.Entry {
 	}).Debug(msg)
 
 	return logger
+}
+
+func (s *Server) createTokenSession(w http.ResponseWriter, r *http.Request) error {
+	session, err := s.store.Get(r, tokenSession)
+	if err != nil {
+		return fmt.Errorf("error getting session: %w", err)
+	}
+	if !session.IsNew {
+		// the session already exists, nothing to do
+		return nil
+	}
+	session.Values[tokenKey] = ""
+
+	if err := session.Save(r, w); err != nil {
+		return fmt.Errorf("error creating session: %w", err)
+	}
+	return nil
+}
+
+func (s *Server) getTokenFromSession(r *http.Request) (string, error) {
+	session, err := s.store.Get(r, tokenSession)
+	if err != nil {
+		return "", fmt.Errorf("error getting session while retrieving token: %w", err)
+	}
+
+	if session.IsNew {
+		// the session did not exist, likely due to missing pass_authorization query parameter
+		return "", nil
+	}
+
+	token := session.Values[tokenKey]
+	if token == nil {
+		return "", fmt.Errorf("token does not exist in session")
+	}
+
+	return token.(string), nil
+}
+
+func (s *Server) saveToken(w http.ResponseWriter, r *http.Request, token string) error {
+	session, err := s.store.Get(r, tokenSession)
+	if err != nil {
+		return fmt.Errorf("error getting session while saving token: %w", err)
+	}
+	session.Values[tokenKey] = token
+
+	if err := session.Save(r, w); err != nil {
+		return fmt.Errorf("error saving session: %w", err)
+	}
+	return nil
 }

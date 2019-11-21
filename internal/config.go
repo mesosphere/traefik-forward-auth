@@ -25,23 +25,25 @@ type Config struct {
 	LogLevel  string `long:"log-level" env:"LOG_LEVEL" default:"warn" choice:"trace" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" choice:"panic" description:"Log level"`
 	LogFormat string `long:"log-format"  env:"LOG_FORMAT" default:"text" choice:"text" choice:"json" choice:"pretty" description:"Log format"`
 
-	ProviderUri    string `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
-	ClientId       string `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
-	ClientSecret   string `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
-	Scope          string
-	AuthHost       string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
-	Config         func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
-	CookieDomains  []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
-	InsecureCookie bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
-	CookieName     string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
-	UserCookieName string               `long:"user-cookie-name" env:"USER_COOKIE_NAME" default:"_forward_auth_name" description:"User Cookie Name"`
-	CSRFCookieName string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
-	DefaultAction  string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
-	Domains        CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
-	LifetimeString int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
-	Path           string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
-	SecretString   string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
-	Whitelist      CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
+	ProviderUri       string `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
+	ClientId          string `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
+	ClientSecret      string `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
+	Scope             string
+	AuthHost          string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
+	Config            func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
+	CookieDomains     []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
+	InsecureCookie    bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
+	CookieName        string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
+	UserCookieName    string               `long:"user-cookie-name" env:"USER_COOKIE_NAME" default:"_forward_auth_name" description:"User Cookie Name"`
+	CSRFCookieName    string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
+	DefaultAction     string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
+	Domains           CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
+	LifetimeString    int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
+	Path              string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
+	SecretString      string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
+	Whitelist         CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
+	SessionKey        string               `long:"session-key" env:"SESSION_KEY" description:"Secret key used for signing and encrypting session cookies"`
+	PassAuthorization bool                 `long:"pass-authorization-header" env:"PASS_AUTHORIZATION_HEADER" description:"Store the OIDC ID token in a session and set Authorization header on successful auth"`
 
 	Rules map[string]*Rule `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
 
