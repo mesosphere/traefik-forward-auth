@@ -130,7 +130,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		logger.Debugf("Allow request from %s", email)
 		w.Header().Set("X-Forwarded-User", email)
 
-		if config.PassImpersonation {
+		if config.EnableImpersonation {
 			// Set minimal impersonation headers
 			logger.Debug("setting authorization token and impersonation headers: ", email)
 			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", config.ServiceAccountToken))

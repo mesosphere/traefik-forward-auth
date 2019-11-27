@@ -43,15 +43,15 @@ type Config struct {
 	SecretString            string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
 	Whitelist               CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
 	SessionKey              string               `long:"session-key" env:"SESSION_KEY" description:"Secret key used for signing and encrypting session cookies"`
-	PassImpersonation       bool                 `long:"pass-impersonation-headers" env:"PASS_IMPERSONATION_HEADERS" description:"Indicates that impersonation headers should be set on successful auth"`
-	ServiceAccountTokenPath string               `long:"service-account-token" env:"SERVICE_ACCOUNT_TOKEN_PATH" description:"When impersonation is enabled, this token is passed via the Authorization header to the ingress. This is user must have impersonation privileges."`
+	EnableImpersonation     bool                 `long:"impersonate" env:"ENABLE_IMPERSONATION" description:"Indicates that impersonation headers should be set on successful auth"`
+	ServiceAccountTokenPath string               `long:"service-account-token-path" env:"SERVICE_ACCOUNT_TOKEN_PATH" default:"/var/run/secrets/kubernetes.io/serviceaccount/token" description:"When impersonation is enabled, this token is passed via the Authorization header to the ingress. This is user must have impersonation privileges."`
 	Rules                   map[string]*Rule     `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
 
 	// Filled during transformations
-	OIDCContext  context.Context
-	OIDCProvider *oidc.Provider
-	Secret       []byte `json:"-"`
-	Lifetime     time.Duration
+	OIDCContext         context.Context
+	OIDCProvider        *oidc.Provider
+	Secret              []byte `json:"-"`
+	Lifetime            time.Duration
 	ServiceAccountToken string
 }
 
@@ -214,7 +214,7 @@ func (c *Config) Validate() {
 	c.OIDCProvider = provider
 
 	// get service account token
-	if c.PassImpersonation {
+	if c.EnableImpersonation {
 		t, err := ioutil.ReadFile(c.ServiceAccountTokenPath)
 		if err != nil {
 			log.Fatalf("impersonation is enabled, but failed to read %s : %v", c.ServiceAccountTokenPath, err)
