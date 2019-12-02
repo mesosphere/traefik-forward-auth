@@ -14,7 +14,6 @@ require (
 	github.com/go-kit/kit v0.8.0 // indirect
 	github.com/golang/protobuf v1.3.2 // indirect
 	github.com/gorilla/context v1.1.1 // indirect
-	github.com/gorilla/sessions v1.2.0
 	github.com/gravitational/trace v0.0.0-20190409171327-f30095ced5ff // indirect
 	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
