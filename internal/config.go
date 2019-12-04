@@ -25,31 +25,33 @@ type Config struct {
 	LogLevel  string `long:"log-level" env:"LOG_LEVEL" default:"warn" choice:"trace" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" choice:"panic" description:"Log level"`
 	LogFormat string `long:"log-format"  env:"LOG_FORMAT" default:"text" choice:"text" choice:"json" choice:"pretty" description:"Log format"`
 
-	ProviderUri    string `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
-	ClientId       string `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
-	ClientSecret   string `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
-	Scope          string
-	AuthHost       string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
-	Config         func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
-	CookieDomains  []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
-	InsecureCookie bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
-	CookieName     string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
-	UserCookieName string               `long:"user-cookie-name" env:"USER_COOKIE_NAME" default:"_forward_auth_name" description:"User Cookie Name"`
-	CSRFCookieName string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
-	DefaultAction  string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
-	Domains        CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
-	LifetimeString int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
-	Path           string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
-	SecretString   string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
-	Whitelist      CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
-
-	Rules map[string]*Rule `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
+	ProviderUri             string `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
+	ClientId                string `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
+	ClientSecret            string `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
+	Scope                   string
+	AuthHost                string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
+	Config                  func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
+	CookieDomains           []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
+	InsecureCookie          bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
+	CookieName              string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
+	UserCookieName          string               `long:"user-cookie-name" env:"USER_COOKIE_NAME" default:"_forward_auth_name" description:"User Cookie Name"`
+	CSRFCookieName          string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
+	DefaultAction           string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
+	Domains                 CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
+	LifetimeString          int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
+	Path                    string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
+	SecretString            string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
+	Whitelist               CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
+	EnableImpersonation     bool                 `long:"enable-impersonation" env:"ENABLE_IMPERSONATION" description:"Indicates that impersonation headers should be set on successful auth"`
+	ServiceAccountTokenPath string               `long:"service-account-token-path" env:"SERVICE_ACCOUNT_TOKEN_PATH" default:"/var/run/secrets/kubernetes.io/serviceaccount/token" description:"When impersonation is enabled, this token is passed via the Authorization header to the ingress. The user associated with the token must have impersonation privileges."`
+	Rules                   map[string]*Rule     `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
 
 	// Filled during transformations
-	OIDCContext  context.Context
-	OIDCProvider *oidc.Provider
-	Secret       []byte `json:"-"`
-	Lifetime     time.Duration
+	OIDCContext         context.Context
+	OIDCProvider        *oidc.Provider
+	Secret              []byte `json:"-"`
+	Lifetime            time.Duration
+	ServiceAccountToken string
 }
 
 func NewGlobalConfig() *Config {
@@ -209,6 +211,15 @@ func (c *Config) Validate() {
 		log.Fatal("failed to get provider configuration: %v", err)
 	}
 	c.OIDCProvider = provider
+
+	// get service account token
+	if c.EnableImpersonation {
+		t, err := ioutil.ReadFile(c.ServiceAccountTokenPath)
+		if err != nil {
+			log.Fatalf("impersonation is enabled, but failed to read %s : %v", c.ServiceAccountTokenPath, err)
+		}
+		c.ServiceAccountToken = strings.TrimSuffix(string(t), "\n")
+	}
 }
 
 func (c Config) String() string {

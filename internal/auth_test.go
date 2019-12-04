@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/mesosphere/traefik-forward-auth/internal/provider"
 )
 
 /**

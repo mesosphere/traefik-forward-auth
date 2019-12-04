@@ -12,6 +12,12 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const (
+	allAuthenticated       = "system:authenticated"
+	impersonateUserHeader  = "Impersonate-User"
+	impersonateGroupHeader = "Impersonate-Group"
+)
+
 type Server struct {
 	router *rules.Router
 }
@@ -50,6 +56,14 @@ func (s *Server) buildRoutes() {
 }
 
 func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
+	logger := log.WithFields(logrus.Fields{
+		"X-Forwarded-Method": r.Header.Get("X-Forwarded-Method"),
+		"X-Forwarded-Proto":  r.Header.Get("X-Forwarded-Proto"),
+		"X-Forwarded-Host":   r.Header.Get("X-Forwarded-Host"),
+		"X-Forwarded-Prefix": r.Header.Get("X-Forwarded-Prefix"),
+		"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
+	})
+
 	// Modify request
 	r.Method = r.Header.Get("X-Forwarded-Method")
 	r.Host = r.Header.Get("X-Forwarded-Host")
@@ -59,13 +73,7 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 		s.router.ServeHTTP(w, r)
 	} else {
 		// Redirect the client to the authHost.
-		logger := log.WithFields(logrus.Fields{
-			"X-Forwarded-Method": r.Header.Get("X-Forwarded-Method"),
-			"X-Forwarded-Proto":  r.Header.Get("X-Forwarded-Proto"),
-			"X-Forwarded-Host":   r.Header.Get("X-Forwarded-Host"),
-			"X-Forwarded-Prefix": r.Header.Get("X-Forwarded-Prefix"),
-			"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
-		})
+
 		url := r.URL
 		url.Scheme = r.Header.Get("X-Forwarded-Proto")
 		url.Host = config.AuthHost
@@ -121,6 +129,14 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		// Valid request
 		logger.Debugf("Allow request from %s", email)
 		w.Header().Set("X-Forwarded-User", email)
+
+		if config.EnableImpersonation {
+			// Set minimal impersonation headers
+			logger.Debug("setting authorization token and impersonation headers: ", email)
+			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", config.ServiceAccountToken))
+			w.Header().Set(impersonateUserHeader, email)
+			w.Header().Set(impersonateGroupHeader, allAuthenticated)
+		}
 		w.WriteHeader(200)
 	}
 }

@@ -12,6 +12,7 @@ require (
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/go-acme/lego v2.5.0+incompatible // indirect
 	github.com/go-kit/kit v0.8.0 // indirect
+	github.com/golang/protobuf v1.3.2 // indirect
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gravitational/trace v0.0.0-20190409171327-f30095ced5ff // indirect
 	github.com/jonboulle/clockwork v0.1.0 // indirect
@@ -23,14 +24,15 @@ require (
 	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.4.1
-	github.com/stretchr/testify v1.3.0
+	github.com/stretchr/testify v1.4.0
 	github.com/thomseddon/go-flags v1.4.1-0.20190507184247-a3629c504486
 	github.com/vulcand/predicate v1.1.0 // indirect
 	golang.org/x/crypto v0.0.0-20190422183909-d864b10871cd // indirect
-	golang.org/x/net v0.0.0-20190420063019-afa5a82059c6 // indirect
+	golang.org/x/net v0.0.0-20191004110552-13f9640d40b9 // indirect
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58 // indirect
-	golang.org/x/sys v0.0.0-20190422165155-953cdadca894 // indirect
+	golang.org/x/sys v0.0.0-20190826190057-c7b8b68b1456 // indirect
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
+	gopkg.in/yaml.v2 v2.2.4 // indirect
 )
