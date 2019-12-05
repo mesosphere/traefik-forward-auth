@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	allAuthenticated       = "system:authenticated"
 	impersonateUserHeader  = "Impersonate-User"
 	impersonateGroupHeader = "Impersonate-Group"
 )
@@ -104,7 +103,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Validate cookie
-		email, err := ValidateCookie(r, c)
+		email, groups, err := ValidateCookie(r, c)
 		if err != nil {
 			if err.Error() == "Cookie has expired" {
 				logger.Info("Cookie has expired")
@@ -135,7 +134,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			logger.Debug("setting authorization token and impersonation headers: ", email)
 			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", config.ServiceAccountToken))
 			w.Header().Set(impersonateUserHeader, email)
-			w.Header().Set(impersonateGroupHeader, allAuthenticated)
+			w.Header().Set(impersonateGroupHeader, groups)
 		}
 		w.WriteHeader(200)
 	}
@@ -203,9 +202,10 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 
 		// Extract custom claims
 		var claims struct {
-			Name     string `json:"name"`
-			Email    string `json:"email"`
-			Verified bool   `json:"email_verified"`
+			Name     string   `json:"name"`
+			Email    string   `json:"email"`
+			Verified bool     `json:"email_verified"`
+			Groups   []string `json:"groups"`
 		}
 		if err := idToken.Claims(&claims); err != nil {
 			logger.Warnf("failed to extract claims: %v", err)
@@ -214,7 +214,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 
 		// Generate cookies
-		http.SetCookie(w, MakeIDCookie(r, claims.Email))
+		http.SetCookie(w, MakeIDCookie(r, claims.Email, claims.Groups))
 		logger.WithFields(logrus.Fields{
 			"user": claims.Email,
 		}).Infof("Generated auth cookie")
