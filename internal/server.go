@@ -130,11 +130,15 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		w.Header().Set("X-Forwarded-User", email)
 
 		if config.EnableImpersonation {
-			// Set minimal impersonation headers
-			logger.Debug("setting authorization token and impersonation headers: ", email)
+			// Set impersonation headers
+			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s, groups: %s", email, groups))
 			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", config.ServiceAccountToken))
 			w.Header().Set(impersonateUserHeader, email)
-			w.Header().Set(impersonateGroupHeader, groups)
+			if len(groups) > 0 {
+				for _, group := range strings.Split(groups, ",") {
+					w.Header().Set(impersonateGroupHeader, group)
+				}
+			}
 		}
 		w.WriteHeader(200)
 	}
@@ -268,7 +272,7 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 		ClientSecret: config.ClientSecret,
 		RedirectURL:  redirectUri(r),
 		Endpoint:     config.OIDCProvider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+		Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
 	}
 
 	state := fmt.Sprintf("%s:%s", nonce, returnUrl(r))
