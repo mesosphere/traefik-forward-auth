@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	allAuthenticated       = "system:authenticated"
 	impersonateUserHeader  = "Impersonate-User"
 	impersonateGroupHeader = "Impersonate-Group"
 )
@@ -104,7 +103,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Validate cookie
-		email, err := ValidateCookie(r, c)
+		claims, err := ValidateCookie(r, c)
 		if err != nil {
 			if err.Error() == "Cookie has expired" {
 				logger.Info("Cookie has expired")
@@ -117,25 +116,28 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Validate user
-		valid := ValidateEmail(email)
+		valid := ValidateEmail(claims.email)
 		if !valid {
 			logger.WithFields(logrus.Fields{
-				"email": email,
+				"email": claims.email,
 			}).Errorf("Invalid email")
 			http.Error(w, "Not authorized", 401)
 			return
 		}
 
 		// Valid request
-		logger.Debugf("Allow request from %s", email)
-		w.Header().Set("X-Forwarded-User", email)
+		logger.Debugf("Allow request from %s", claims.email)
+		w.Header().Set("X-Forwarded-User", claims.email)
 
 		if config.EnableImpersonation {
-			// Set minimal impersonation headers
-			logger.Debug("setting authorization token and impersonation headers: ", email)
+			// Set impersonation headers
+			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s, groups: %s", claims.email, claims.groups))
 			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", config.ServiceAccountToken))
-			w.Header().Set(impersonateUserHeader, email)
-			w.Header().Set(impersonateGroupHeader, allAuthenticated)
+			w.Header().Set(impersonateUserHeader, claims.email)
+			for _, group := range claims.groups {
+				w.Header().Set(impersonateGroupHeader, group)
+			}
+
 		}
 		w.WriteHeader(200)
 	}
@@ -203,9 +205,10 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 
 		// Extract custom claims
 		var claims struct {
-			Name     string `json:"name"`
-			Email    string `json:"email"`
-			Verified bool   `json:"email_verified"`
+			Name     string   `json:"name"`
+			Email    string   `json:"email"`
+			Verified bool     `json:"email_verified"`
+			Groups   []string `json:"groups"`
 		}
 		if err := idToken.Claims(&claims); err != nil {
 			logger.Warnf("failed to extract claims: %v", err)
@@ -214,7 +217,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 
 		// Generate cookies
-		http.SetCookie(w, MakeIDCookie(r, claims.Email))
+		http.SetCookie(w, MakeIDCookie(r, claims.Email, claims.Groups))
 		logger.WithFields(logrus.Fields{
 			"user": claims.Email,
 		}).Infof("Generated auth cookie")
@@ -268,7 +271,7 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 		ClientSecret: config.ClientSecret,
 		RedirectURL:  redirectUri(r),
 		Endpoint:     config.OIDCProvider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+		Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
 	}
 
 	state := fmt.Sprintf("%s:%s", nonce, returnUrl(r))
