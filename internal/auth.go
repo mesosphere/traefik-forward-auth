@@ -16,42 +16,55 @@ import (
 
 // Request Validation
 
-// Cookie = hash(secret, cookie domain, email, expires)|expires|email
-func ValidateCookie(r *http.Request, c *http.Cookie) (string, string, error) {
+// cookieClaims are extracted from the authorization cookie
+type cookieClaims struct {
+	email string
+	groups []string
+}
+
+// Cookie = hash(secret, cookie domain, email, expires)|expires|email|groups
+func ValidateCookie(r *http.Request, c *http.Cookie) (*cookieClaims, error) {
+	claims := cookieClaims{}
 	parts := strings.Split(c.Value, "|")
 
 	if len(parts) != 4 {
-		return "", "", errors.New("invalid cookie format")
+		return nil, errors.New("invalid cookie format")
 	}
 
 	mac, err := base64.URLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return "", "", errors.New("unable to decode cookie mac")
+		return nil, errors.New("unable to decode cookie mac")
 	}
 
 	expectedSignature := cookieSignature(r, parts[2], parts[3], parts[1])
 	expected, err := base64.URLEncoding.DecodeString(expectedSignature)
 	if err != nil {
-		return "", "", errors.New("unable to generate mac")
+		return nil, errors.New("unable to generate mac")
 	}
 
 	// Valid token?
 	if !hmac.Equal(mac, expected) {
-		return "", "", errors.New("invalid cookie mac")
+		return nil, errors.New("invalid cookie mac")
 	}
 
 	expires, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return "", "", errors.New("unable to parse cookie expiry")
+		return nil, errors.New("unable to parse cookie expiry")
 	}
 
 	// Has it expired?
 	if time.Unix(expires, 0).Before(time.Now()) {
-		return "", "", errors.New("cookie has expired")
+		return nil, errors.New("cookie has expired")
 	}
+	claims.email = parts[2]
 
+	if len(parts[3]) > 0 {
+		for _, group := range strings.Split(parts[3], ",") {
+			claims.groups = append(claims.groups, group)
+		}
+	}
 	// Looks valid
-	return parts[2], parts[3], nil
+	return &claims, nil
 }
 
 // Validate email

@@ -103,7 +103,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Validate cookie
-		email, groups, err := ValidateCookie(r, c)
+		claims, err := ValidateCookie(r, c)
 		if err != nil {
 			if err.Error() == "Cookie has expired" {
 				logger.Info("Cookie has expired")
@@ -116,29 +116,28 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Validate user
-		valid := ValidateEmail(email)
+		valid := ValidateEmail(claims.email)
 		if !valid {
 			logger.WithFields(logrus.Fields{
-				"email": email,
+				"email": claims.email,
 			}).Errorf("Invalid email")
 			http.Error(w, "Not authorized", 401)
 			return
 		}
 
 		// Valid request
-		logger.Debugf("Allow request from %s", email)
-		w.Header().Set("X-Forwarded-User", email)
+		logger.Debugf("Allow request from %s", claims.email)
+		w.Header().Set("X-Forwarded-User", claims.email)
 
 		if config.EnableImpersonation {
 			// Set impersonation headers
-			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s, groups: %s", email, groups))
+			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s, groups: %s", claims.email, claims.groups))
 			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", config.ServiceAccountToken))
-			w.Header().Set(impersonateUserHeader, email)
-			if len(groups) > 0 {
-				for _, group := range strings.Split(groups, ",") {
-					w.Header().Set(impersonateGroupHeader, group)
-				}
+			w.Header().Set(impersonateUserHeader, claims.email)
+			for _, group := range claims.groups {
+				w.Header().Set(impersonateGroupHeader, group)
 			}
+
 		}
 		w.WriteHeader(200)
 	}
