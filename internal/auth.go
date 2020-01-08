@@ -16,81 +16,62 @@ import (
 
 // Request Validation
 
-// cookieClaims are extracted from the authorization cookie
-type cookieClaims struct {
-	email string
-	groups []string
-}
-
 // Cookie = hash(secret, cookie domain, email, expires)|expires|email|groups
-func ValidateCookie(r *http.Request, c *http.Cookie) (*cookieClaims, error) {
-	claims := cookieClaims{}
+func ValidateCookie(r *http.Request, c *http.Cookie) (string, error) {
 	parts := strings.Split(c.Value, "|")
 
-	if len(parts) != 4 {
-		return nil, errors.New("invalid cookie format")
+	if len(parts) != 3 {
+		return "", errors.New("invalid cookie format")
 	}
 
 	mac, err := base64.URLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return nil, errors.New("unable to decode cookie mac")
+		return "", errors.New("unable to decode cookie mac")
 	}
 
-	expectedSignature := cookieSignature(r, parts[2], parts[3], parts[1])
+	expectedSignature := cookieSignature(r, parts[2], parts[1])
 	expected, err := base64.URLEncoding.DecodeString(expectedSignature)
 	if err != nil {
-		return nil, errors.New("unable to generate mac")
+		return "", errors.New("unable to generate mac")
 	}
 
 	// Valid token?
 	if !hmac.Equal(mac, expected) {
-		return nil, errors.New("invalid cookie mac")
+		return "", errors.New("invalid cookie mac")
 	}
 
 	expires, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return nil, errors.New("unable to parse cookie expiry")
+		return "", errors.New("unable to parse cookie expiry")
 	}
 
 	// Has it expired?
 	if time.Unix(expires, 0).Before(time.Now()) {
-		return nil, errors.New("cookie has expired")
+		return "", errors.New("cookie has expired")
 	}
-	claims.email = parts[2]
 
-	if len(parts[3]) > 0 {
-		for _, group := range strings.Split(parts[3], ",") {
-			claims.groups = append(claims.groups, group)
-		}
-	}
 	// Looks valid
-	return &claims, nil
+	return parts[2], nil
 }
 
 // Validate email
 func ValidateEmail(email string) bool {
-	found := false
-	if len(config.Whitelist) > 0 {
+	if len(config.Whitelist) > 0 || len(config.Domains) > 0 {
 		for _, whitelist := range config.Whitelist {
 			if email == whitelist {
-				found = true
+				return true
 			}
 		}
-	} else if len(config.Domains) > 0 {
-		parts := strings.Split(email, "@")
-		if len(parts) < 2 {
-			return false
-		}
-		for _, domain := range config.Domains {
-			if domain == parts[1] {
-				found = true
-			}
-		}
-	} else {
-		return true
-	}
 
-	return found
+		parts := strings.Split(email, "@")
+		for _, domain := range config.Domains {
+			if len(parts) >= 2 && domain == parts[1] {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // Utility methods
@@ -147,11 +128,10 @@ func useAuthDomain(r *http.Request) (bool, string) {
 // Cookie methods
 
 // Create an auth cookie
-func MakeIDCookie(r *http.Request, email string, groups []string) *http.Cookie {
+func MakeIDCookie(r *http.Request, email string) *http.Cookie {
 	expires := cookieExpiry()
-	prefixedGroups := prefixAndJoinGroupClaims(groups)
-	mac := cookieSignature(r, email, prefixedGroups, fmt.Sprintf("%d", expires.Unix()))
-	value := fmt.Sprintf("%s|%d|%s|%s", mac, expires.Unix(), email, prefixedGroups)
+	mac := cookieSignature(r, email, fmt.Sprintf("%d", expires.Unix()))
+	value := fmt.Sprintf("%s|%d|%s", mac, expires.Unix(), email)
 
 	return &http.Cookie{
 		Name:     config.CookieName,
@@ -275,11 +255,10 @@ func matchCookieDomains(domain string) (bool, string) {
 }
 
 // Create cookie hmac
-func cookieSignature(r *http.Request, email, groups, expires string) string {
+func cookieSignature(r *http.Request, email, expires string) string {
 	hash := hmac.New(sha256.New, config.Secret)
 	hash.Write([]byte(cookieDomain(r)))
 	hash.Write([]byte(email))
-	hash.Write([]byte(groups))
 	hash.Write([]byte(expires))
 	return base64.URLEncoding.EncodeToString(hash.Sum(nil))
 }
@@ -351,13 +330,4 @@ func (c *CookieDomains) MarshalFlag() (string, error) {
 		domains = append(domains, d.Domain)
 	}
 	return strings.Join(domains, ","), nil
-}
-
-func prefixAndJoinGroupClaims(groups []string) string {
-	// system:authenticated group is applied to all authenticated users
-	t := []string{"system:authenticated"}
-	for _, group := range groups {
-		t = append(t, fmt.Sprintf("%s%s", config.GroupClaimPrefix, group))
-	}
-	return strings.Join(t, ",")
 }

@@ -15,20 +15,26 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc"
+	"github.com/sirupsen/logrus"
 	"github.com/thomseddon/go-flags"
-	"golang.org/x/oauth2"
+
+	internallog "github.com/mesosphere/traefik-forward-auth/internal/log"
 )
 
-var config *Config
+var (
+	// TODO(jr): Get rid of the global config object
+	config *Config
+	log    logrus.FieldLogger
+)
 
 type Config struct {
 	LogLevel  string `long:"log-level" env:"LOG_LEVEL" default:"warn" choice:"trace" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" choice:"panic" description:"Log level"`
 	LogFormat string `long:"log-format"  env:"LOG_FORMAT" default:"text" choice:"text" choice:"json" choice:"pretty" description:"Log format"`
 
-	ProviderUri             string `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
-	ClientId                string `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
-	ClientSecret            string `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
-	Scope                   string
+	ProviderUri             string               `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
+	ClientId                string               `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
+	ClientSecret            string               `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
+	Scope                   string               `long:"scope" env:"SCOPE" description:"Define scope"`
 	AuthHost                string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
 	Config                  func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
 	CookieDomains           []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
@@ -46,6 +52,11 @@ type Config struct {
 	ServiceAccountTokenPath string               `long:"service-account-token-path" env:"SERVICE_ACCOUNT_TOKEN_PATH" default:"/var/run/secrets/kubernetes.io/serviceaccount/token" description:"When impersonation is enabled, this token is passed via the Authorization header to the ingress. The user associated with the token must have impersonation privileges."`
 	Rules                   map[string]*Rule     `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
 	GroupClaimPrefix        string               `long:"group-claim-prefix" env:"GROUP_CLAIM_PREFIX" default:"oidc:" description:"prefix oidc group claims with this value"`
+	SessionKey              string               `long:"session-key" env:"SESSION_KEY" description:"A session key used to encrypt browser sessions"`
+
+	// RBAC
+	EnableRBAC       bool               `long:"enable-rbac" env:"ENABLE_RBAC" description:"Indicates that RBAC support should be enabled"`
+	AuthZPassThrough CommaSeparatedList `long:"authz-pass-through" env:"AUTHZ_PASS_THROUGH" description:"One or more routes which bypass authorization checks"`
 
 	// Filled during transformations
 	OIDCContext         context.Context
@@ -73,6 +84,7 @@ func NewConfig(args []string) (*Config, error) {
 
 	err := c.parseFlags(args)
 
+	log = internallog.NewDefaultLogger(c.LogLevel, c.LogFormat)
 	return &c, err
 }
 
@@ -205,14 +217,6 @@ func (c *Config) Validate() {
 	c.Secret = []byte(c.SecretString)
 	c.Lifetime = time.Second * time.Duration(c.LifetimeString)
 
-	// Fetch OIDC Provider configuration
-	c.OIDCContext = oauth2.NoContext
-	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderUri)
-	if err != nil {
-		log.Fatal("failed to get provider configuration: %v", err)
-	}
-	c.OIDCProvider = provider
-
 	// get service account token
 	if c.EnableImpersonation {
 		t, err := ioutil.ReadFile(c.ServiceAccountTokenPath)
@@ -221,6 +225,16 @@ func (c *Config) Validate() {
 		}
 		c.ServiceAccountToken = strings.TrimSuffix(string(t), "\n")
 	}
+}
+
+func (c *Config) SetOidcProvider() {
+	// Fetch OIDC Provider configuration
+	c.OIDCContext = context.Background()
+	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderUri)
+	if err != nil {
+		log.Fatal("failed to get provider configuration: %v", err)
+	}
+	c.OIDCProvider = provider
 }
 
 func (c Config) String() string {
