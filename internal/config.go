@@ -46,6 +46,7 @@ type Config struct {
 	ServiceAccountTokenPath string               `long:"service-account-token-path" env:"SERVICE_ACCOUNT_TOKEN_PATH" default:"/var/run/secrets/kubernetes.io/serviceaccount/token" description:"When impersonation is enabled, this token is passed via the Authorization header to the ingress. The user associated with the token must have impersonation privileges."`
 	Rules                   map[string]*Rule     `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
 	GroupClaimPrefix        string               `long:"group-claim-prefix" env:"GROUP_CLAIM_PREFIX" default:"oidc:" description:"prefix oidc group claims with this value"`
+	SessionKey              string               `long:"session-key" env:"SESSION_KEY" description:"A session key used to encrypt browser sessions"`
 
 	// Filled during transformations
 	OIDCContext         context.Context
