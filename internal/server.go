@@ -16,7 +16,7 @@ import (
 const (
 	impersonateUserHeader  = "Impersonate-User"
 	impersonateGroupHeader = "Impersonate-Group"
-	sessionName            = "group-claims-session"
+	sessionName            = "_forward_auth_claims"
 )
 
 type Server struct {
@@ -142,6 +142,13 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			if err != nil {
 				logger.Errorf("error getting groups from session: %w", err)
 				http.Error(w, "Bad Gateway", 502)
+				return
+			}
+
+			if groups == nil {
+				logger.Info("groups session data is missing, re-authenticating")
+				s.notAuthenticated(logger, w, r)
+				return
 			}
 
 			// Set impersonation headers
@@ -150,7 +157,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			w.Header().Set(impersonateUserHeader, email)
 			w.Header().Set(impersonateGroupHeader, "system:authenticated")
 			for _, group := range groups {
-				w.Header().Set(impersonateGroupHeader, group)
+				w.Header().Set(impersonateGroupHeader, fmt.Sprintf("%s%s", config.GroupClaimPrefix, group))
 			}
 		}
 		w.WriteHeader(200)
@@ -247,21 +254,21 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			"name": claims.Name,
 		}).Infof("Generated name cookie")
 
-		if len(claims.Groups) > 0 {
-			logger.Printf("creating group claims session with groups: %v", claims.Groups)
-			session, err := s.sessionStore.Get(r, sessionName)
-			if err != nil {
-				logger.Errorf("failed to get group claims session: %v", err)
-				http.Error(w, "Bad Gateway", 502)
-				return
-			}
-			session.Values["groups"] = make([]string, len(claims.Groups))
-			copy(session.Values["groups"].([]string), claims.Groups)
-			if err := session.Save(r, w); err != nil {
-				logger.Errorf("error saving session: %v", err)
-				http.Error(w, "Bad Gateway", 502)
-			}
+		logger.Printf("creating group claims session with groups: %v", claims.Groups)
+		session, err := s.sessionStore.Get(r, sessionName)
+		if err != nil {
+			logger.Errorf("failed to get group claims session: %v", err)
+			http.Error(w, "Bad Gateway", 502)
+			return
 		}
+		session.Values["groups"] = make([]string, len(claims.Groups))
+		copy(session.Values["groups"].([]string), claims.Groups)
+
+		if err := session.Save(r, w); err != nil {
+			logger.Errorf("error saving session: %v", err)
+			http.Error(w, "Bad Gateway", 502)
+		}
+
 		// Redirect
 		http.Redirect(w, r, redirect, http.StatusTemporaryRedirect)
 	}
@@ -333,12 +340,16 @@ func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
 
 	i, ok := session.Values["groups"]
 	if !ok {
-		return make([]string, 0), nil
+		return nil, nil
 	}
 
 	groups, ok := i.([]string)
 	if !ok {
 		return nil, fmt.Errorf("could not cast groups to string slice: %v", groups)
+	}
+
+	if groups == nil {
+		return make([]string, 0), nil
 	}
 	return groups, nil
 }
