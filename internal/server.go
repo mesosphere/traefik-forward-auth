@@ -191,12 +191,20 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 
 		provider := config.OIDCProvider
 
+		// Mapping scope
+		scope := []string{}
+		if config.Scope != "" {
+			scope = []string{config.Scope}
+		} else {
+			scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
+		}
+
 		oauth2Config := oauth2.Config{
 			ClientID:     config.ClientId,
 			ClientSecret: config.ClientSecret,
 			RedirectURL:  redirectUri(r),
 			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
+			Scopes:       scope,
 		}
 
 		// Exchange code for token
@@ -302,12 +310,20 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 	http.SetCookie(w, MakeCSRFCookie(r, nonce))
 	logger.Debug("Set CSRF cookie and redirect to OIDC login")
 
+	// Mapping scope
+	scope := []string{}
+	if config.Scope != "" {
+		scope = []string{config.Scope}
+	} else {
+		scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
+	}
+
 	oauth2Config := oauth2.Config{
 		ClientID:     config.ClientId,
 		ClientSecret: config.ClientSecret,
 		RedirectURL:  redirectUri(r),
 		Endpoint:     config.OIDCProvider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
+		Scopes:       scope,
 	}
 
 	state := fmt.Sprintf("%s:%s", nonce, returnUrl(r))
