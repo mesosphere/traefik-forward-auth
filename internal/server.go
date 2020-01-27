@@ -233,12 +233,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 
 		// Extract custom claims
-		var claims struct {
-			Name     string   `json:"name"`
-			Email    string   `json:"email"`
-			Verified bool     `json:"email_verified"`
-			Groups   []string `json:"groups"`
-		}
+		var claims map[string]interface{}
 		if err := idToken.Claims(&claims); err != nil {
 			logger.Warnf("failed to extract claims: %v", err)
 			http.Error(w, "Bad Gateway", 502)
@@ -246,31 +241,49 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 
 		// Generate cookies
-		http.SetCookie(w, MakeIDCookie(r, claims.Email))
-		logger.WithFields(logrus.Fields{
-			"user": claims.Email,
-		}).Infof("Generated auth cookie")
-
-		// If name is empty or whitespace, use email address for name
-		name := claims.Name
-		if strings.TrimSpace(name) == "" {
-			name = claims.Email
+		email, ok := claims["email"]
+		if ok {
+			// Generate cookies
+			http.SetCookie(w, MakeIDCookie(r, email.(string)))
+			logger.WithFields(logrus.Fields{
+				"user": claims["email"].(string),
+			}).Infof("Generated auth cookie")
+		} else {
+			logger.Errorf("failed to get email claims session")
 		}
 
-		http.SetCookie(w, MakeNameCookie(r, name))
+		// If name is empty or whitespace, use email address for name
+		name, ok := claims["name"]
+		if ok && strings.TrimSpace(name.(string)) == "" {
+			name = email.(string)
+		}
+
+		http.SetCookie(w, MakeNameCookie(r, name.(string)))
 		logger.WithFields(logrus.Fields{
-			"name": claims.Name,
+			"name": name.(string),
 		}).Infof("Generated name cookie")
 
-		logger.Printf("creating group claims session with groups: %v", claims.Groups)
+		// Mapping groups
+		groups := []string{}
+		gInterface, ok := claims[config.GroupsAttributeName].([]interface{})
+		if ok {
+			groups = make([]string, len(gInterface))
+			for i, v := range gInterface {
+				groups[i] = v.(string)
+			}
+		} else {
+			logger.Errorf("failed to get groups claims session. GroupsAttributeName: %s", config.GroupsAttributeName)
+		}
+
+		logger.Printf("creating group claims session with groups: %v", groups)
 		session, err := s.sessionStore.Get(r, sessionName)
 		if err != nil {
 			logger.Errorf("failed to get group claims session: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
-		session.Values["groups"] = make([]string, len(claims.Groups))
-		copy(session.Values["groups"].([]string), claims.Groups)
+		session.Values["groups"] = make([]string, len(groups))
+		copy(session.Values["groups"].([]string), groups)
 
 		if err := session.Save(r, w); err != nil {
 			logger.Errorf("error saving session: %v", err)
