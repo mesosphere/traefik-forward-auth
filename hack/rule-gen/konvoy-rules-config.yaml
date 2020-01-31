@@ -1,0 +1,30 @@
+name: "konvoy"
+endpoints:
+- name: kibana
+  paths:
+    - /ops/portal/kibana
+    - /ops/portal/kibana/*
+- name: traefik
+  paths:
+    - /ops/portal/traefik
+    - /ops/portal/traefik/*
+- name: prometheus
+  paths:
+    - /ops/portal/prometheus
+    - /ops/portal/prometheus/*
+- name: grafana
+  paths:
+    - /ops/portal/grafana
+    - /ops/portal/grafana/*
+- name: alertmanager
+  paths:
+    - /ops/portal/alertmanager
+    - /ops/portal/alertmanager/*
+- name: portal
+  paths:
+    - /ops/portal
+    - /ops/portal/*
+- name: graphql
+  paths:
+    - /ops/portal/graphql
+    - /ops/portal/graphql/*

@@ -56,28 +56,22 @@ func ValidateCookie(r *http.Request, c *http.Cookie) (string, error) {
 
 // Validate email
 func ValidateEmail(email string) bool {
-	found := false
-	if len(config.Whitelist) > 0 {
+	if len(config.Whitelist) > 0 || len(config.Domains) > 0 {
 		for _, whitelist := range config.Whitelist {
 			if email == whitelist {
-				found = true
+				return true
 			}
 		}
-	} else if len(config.Domains) > 0 {
-		parts := strings.Split(email, "@")
-		if len(parts) < 2 {
-			return false
-		}
-		for _, domain := range config.Domains {
-			if domain == parts[1] {
-				found = true
-			}
-		}
-	} else {
-		return true
-	}
 
-	return found
+		parts := strings.Split(email, "@")
+		for _, domain := range config.Domains {
+			if len(parts) >= 2 && domain == parts[1] {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // Utility methods

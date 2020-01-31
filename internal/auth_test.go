@@ -3,7 +3,6 @@ package tfa
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -25,37 +24,37 @@ func TestAuthValidateCookie(t *testing.T) {
 	c.Value = ""
 	_, err := ValidateCookie(r, c)
 	if assert.Error(err) {
-		assert.Equal("Invalid cookie format", err.Error())
+		assert.Equal("invalid cookie format", err.Error())
 	}
 	c.Value = "1|2"
 	_, err = ValidateCookie(r, c)
 	if assert.Error(err) {
-		assert.Equal("Invalid cookie format", err.Error())
+		assert.Equal("invalid cookie format", err.Error())
 	}
 	c.Value = "1|2|3|4"
 	_, err = ValidateCookie(r, c)
 	if assert.Error(err) {
-		assert.Equal("Invalid cookie format", err.Error())
+		assert.Equal("invalid cookie format", err.Error())
 	}
 
 	// Should catch invalid mac
 	c.Value = "MQ==|2|3"
 	_, err = ValidateCookie(r, c)
 	if assert.Error(err) {
-		assert.Equal("Invalid cookie mac", err.Error())
+		assert.Equal("invalid cookie mac", err.Error())
 	}
 
 	// Should catch expired
 	config.Lifetime = time.Second * time.Duration(-1)
-	c = MakeCookie(r, "test@test.com")
+	c = MakeIDCookie(r, "test@test.com")
 	_, err = ValidateCookie(r, c)
 	if assert.Error(err) {
-		assert.Equal("Cookie has expired", err.Error())
+		assert.Equal("cookie has expired", err.Error())
 	}
 
 	// Should accept valid cookie
 	config.Lifetime = time.Second * time.Duration(10)
-	c = MakeCookie(r, "test@test.com")
+	c = MakeIDCookie(r, "test@test.com")
 	email, err := ValidateCookie(r, c)
 	assert.Nil(err, "valid request should not return an error")
 	assert.Equal("test@test.com", email, "valid request should return user email")
@@ -94,131 +93,6 @@ func TestAuthValidateEmail(t *testing.T) {
 	assert.True(v, "should allow user in whitelist")
 }
 
-// TODO: Split google tests out
-func TestAuthGetLoginURL(t *testing.T) {
-	assert := assert.New(t)
-	google := provider.Google{
-		ClientId:     "idtest",
-		ClientSecret: "sectest",
-		Scope:        "scopetest",
-		Prompt:       "consent select_account",
-		LoginURL: &url.URL{
-			Scheme: "https",
-			Host:   "test.com",
-			Path:   "/auth",
-		},
-	}
-
-	config, _ = NewConfig([]string{})
-	config.Providers.Google = google
-
-	r, _ := http.NewRequest("GET", "http://example.com", nil)
-	r.Header.Add("X-Forwarded-Proto", "http")
-	r.Header.Add("X-Forwarded-Host", "example.com")
-	r.Header.Add("X-Forwarded-Uri", "/hello")
-
-	// Check url
-	uri, err := url.Parse(GetLoginURL(r, "nonce"))
-	assert.Nil(err)
-	assert.Equal("https", uri.Scheme)
-	assert.Equal("test.com", uri.Host)
-	assert.Equal("/auth", uri.Path)
-
-	// Check query string
-	qs := uri.Query()
-	expectedQs := url.Values{
-		"client_id":     []string{"idtest"},
-		"redirect_uri":  []string{"http://example.com/_oauth"},
-		"response_type": []string{"code"},
-		"scope":         []string{"scopetest"},
-		"prompt":        []string{"consent select_account"},
-		"state":         []string{"nonce:http://example.com/hello"},
-	}
-	assert.Equal(expectedQs, qs)
-
-	//
-	// With Auth URL but no matching cookie domain
-	// - will not use auth host
-	//
-	config, _ = NewConfig([]string{})
-	config.AuthHost = "auth.example.com"
-	config.Providers.Google = google
-
-	// Check url
-	uri, err = url.Parse(GetLoginURL(r, "nonce"))
-	assert.Nil(err)
-	assert.Equal("https", uri.Scheme)
-	assert.Equal("test.com", uri.Host)
-	assert.Equal("/auth", uri.Path)
-
-	// Check query string
-	qs = uri.Query()
-	expectedQs = url.Values{
-		"client_id":     []string{"idtest"},
-		"redirect_uri":  []string{"http://example.com/_oauth"},
-		"response_type": []string{"code"},
-		"scope":         []string{"scopetest"},
-		"prompt":        []string{"consent select_account"},
-		"state":         []string{"nonce:http://example.com/hello"},
-	}
-	assert.Equal(expectedQs, qs)
-
-	//
-	// With correct Auth URL + cookie domain
-	//
-	config, _ = NewConfig([]string{})
-	config.AuthHost = "auth.example.com"
-	config.CookieDomains = []CookieDomain{*NewCookieDomain("example.com")}
-	config.Providers.Google = google
-
-	// Check url
-	uri, err = url.Parse(GetLoginURL(r, "nonce"))
-	assert.Nil(err)
-	assert.Equal("https", uri.Scheme)
-	assert.Equal("test.com", uri.Host)
-	assert.Equal("/auth", uri.Path)
-
-	// Check query string
-	qs = uri.Query()
-	expectedQs = url.Values{
-		"client_id":     []string{"idtest"},
-		"redirect_uri":  []string{"http://auth.example.com/_oauth"},
-		"response_type": []string{"code"},
-		"scope":         []string{"scopetest"},
-		"state":         []string{"nonce:http://example.com/hello"},
-		"prompt":        []string{"consent select_account"},
-	}
-	assert.Equal(expectedQs, qs)
-
-	//
-	// With Auth URL + cookie domain, but from different domain
-	// - will not use auth host
-	//
-	r, _ = http.NewRequest("GET", "http://another.com", nil)
-	r.Header.Add("X-Forwarded-Proto", "http")
-	r.Header.Add("X-Forwarded-Host", "another.com")
-	r.Header.Add("X-Forwarded-Uri", "/hello")
-
-	// Check url
-	uri, err = url.Parse(GetLoginURL(r, "nonce"))
-	assert.Nil(err)
-	assert.Equal("https", uri.Scheme)
-	assert.Equal("test.com", uri.Host)
-	assert.Equal("/auth", uri.Path)
-
-	// Check query string
-	qs = uri.Query()
-	expectedQs = url.Values{
-		"client_id":     []string{"idtest"},
-		"redirect_uri":  []string{"http://another.com/_oauth"},
-		"response_type": []string{"code"},
-		"scope":         []string{"scopetest"},
-		"state":         []string{"nonce:http://another.com/hello"},
-		"prompt":        []string{"consent select_account"},
-	}
-	assert.Equal(expectedQs, qs)
-}
-
 // TODO
 // func TestAuthExchangeCode(t *testing.T) {
 // }
@@ -227,13 +101,21 @@ func TestAuthGetLoginURL(t *testing.T) {
 // func TestAuthGetUser(t *testing.T) {
 // }
 
+func getConfigWithLifetime() *Config {
+	config, _ := NewConfig([]string{})
+	// Lifetime is set during validation, so we short circuit it here
+	config.Lifetime = time.Second * time.Duration(config.LifetimeString)
+	return config
+}
+
 func TestAuthMakeCookie(t *testing.T) {
 	assert := assert.New(t)
-	config, _ = NewConfig([]string{})
+	config = getConfigWithLifetime()
+
 	r, _ := http.NewRequest("GET", "http://app.example.com", nil)
 	r.Header.Add("X-Forwarded-Host", "app.example.com")
 
-	c := MakeCookie(r, "test@example.com")
+	c := MakeIDCookie(r, "test@example.com")
 	assert.Equal("_forward_auth", c.Name)
 	parts := strings.Split(c.Value, "|")
 	assert.Len(parts, 3, "cookie should be 3 parts")
@@ -248,14 +130,14 @@ func TestAuthMakeCookie(t *testing.T) {
 
 	config.CookieName = "testname"
 	config.InsecureCookie = true
-	c = MakeCookie(r, "test@example.com")
+	c = MakeIDCookie(r, "test@example.com")
 	assert.Equal("testname", c.Name)
 	assert.False(c.Secure)
 }
 
 func TestAuthMakeCSRFCookie(t *testing.T) {
 	assert := assert.New(t)
-	config, _ = NewConfig([]string{})
+	config = getConfigWithLifetime()
 	r, _ := http.NewRequest("GET", "http://app.example.com", nil)
 	r.Header.Add("X-Forwarded-Host", "app.example.com")
 
@@ -264,14 +146,14 @@ func TestAuthMakeCSRFCookie(t *testing.T) {
 	assert.Equal("app.example.com", c.Domain)
 
 	// With cookie domain but no auth url
-	config = Config{
+	config = &Config{
 		CookieDomains: []CookieDomain{*NewCookieDomain("example.com")},
 	}
 	c = MakeCSRFCookie(r, "12345678901234567890123456789012")
 	assert.Equal("app.example.com", c.Domain)
 
 	// With cookie domain and auth url
-	config = Config{
+	config = &Config{
 		AuthHost:      "auth.example.com",
 		CookieDomains: []CookieDomain{*NewCookieDomain("example.com")},
 	}
@@ -280,7 +162,7 @@ func TestAuthMakeCSRFCookie(t *testing.T) {
 }
 
 func TestAuthClearCSRFCookie(t *testing.T) {
-	config, _ = NewConfig([]string{})
+	config = getConfigWithLifetime()
 	r, _ := http.NewRequest("GET", "http://example.com", nil)
 
 	c := ClearCSRFCookie(r)
@@ -291,7 +173,7 @@ func TestAuthClearCSRFCookie(t *testing.T) {
 
 func TestAuthValidateCSRFCookie(t *testing.T) {
 	assert := assert.New(t)
-	config, _ = NewConfig([]string{})
+	config = getConfigWithLifetime()
 	c := &http.Cookie{}
 
 	newCsrfRequest := func(state string) *http.Request {
