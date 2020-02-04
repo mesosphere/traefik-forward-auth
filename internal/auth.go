@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -87,11 +86,7 @@ func redirectBase(r *http.Request) string {
 func GetUriPath(r *http.Request) string {
 	prefix := r.Header.Get("X-Forwarded-Prefix")
 	uri := r.Header.Get("X-Forwarded-Uri")
-	p := path.Join(prefix, uri)
-	if strings.HasSuffix(uri, "/") {
-		p += "/"
-	}
-	return p
+	return fmt.Sprintf("%s/%s", strings.TrimRight(prefix, "/"), strings.TrimLeft(uri, "/"))
 }
 
 // // Return url
