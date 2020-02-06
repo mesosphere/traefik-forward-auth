@@ -284,9 +284,9 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			logger.Errorf("failed to get email claims session")
 		}
 
-		// If name is empty or whitespace, use email address for name
+		// If name in null, empty or whitespace, use email address for name
 		name, ok := claims["name"]
-		if ok && strings.TrimSpace(name.(string)) == "" {
+		if !ok || (ok && strings.TrimSpace(name.(string)) == "") {
 			name = email.(string)
 		}
 
