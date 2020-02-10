@@ -149,7 +149,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		groups, err := s.getGroupsFromSession(r)
 		if err != nil {
 			logger.Errorf("error getting groups from session: %w", err)
-			http.Error(w, "Bad Gateway", 502)
+			s.notAuthenticated(logger, w, r)
 			return
 		}
 
@@ -434,7 +434,7 @@ func (s *Server) authzIsBypassed(r *http.Request) bool {
 
 // appends group prefix to groups
 func (s *Server) getModifiedUserInfo(email string, groups []string) authorization.User {
-	var g []string
+	g := []string{"system:authenticated"}
 	for _, group := range groups {
 		g = append(g, fmt.Sprintf("%s%s", config.GroupClaimPrefix, group))
 	}
