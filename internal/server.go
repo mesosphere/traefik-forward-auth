@@ -182,7 +182,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		logger.Debugf("Allow request from %s", email)
 		w.Header().Set("X-Forwarded-User", email)
 
-		if config.EnableImpersonation {
+		if config.EnableImpersonation && s.allowImpersonation(r) {
 			// Set impersonation headers
 			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s, groups: %s", email, groups))
 			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", config.ServiceAccountToken))
@@ -416,20 +416,13 @@ func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
 }
 
 func (s *Server) authzIsBypassed(r *http.Request) bool {
-	bypassed := false
 	for _, bypassURIPattern := range config.AuthZPassThrough {
 		if authorization.PathMatches(r.URL.Path, bypassURIPattern) {
-			bypassed = true
-			break
+			s.log.Infof("authorization is disabled for %s", r.URL.Path)
+			return true
 		}
 	}
-
-	if bypassed {
-		s.log.Infof("authorization is disabled for %s", r.URL.Path)
-	}
-
-	return bypassed
-
+	return false
 }
 
 // appends group prefix to groups
@@ -442,4 +435,15 @@ func (s *Server) getModifiedUserInfo(email string, groups []string) authorizatio
 		Name:   email,
 		Groups: g,
 	}
+}
+
+func (s *Server) allowImpersonation(r *http.Request) bool {
+	prefix := r.Header.Get("X-Forwarded-Prefix")
+	for _, backend := range config.ImpersonationBackends {
+		if prefix == backend {
+			s.log.Debugf("impersonation is allowed for %s", backend)
+			return true
+		}
+	}
+	return false
 }

@@ -49,6 +49,7 @@ type Config struct {
 	SecretString            string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
 	Whitelist               CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
 	EnableImpersonation     bool                 `long:"enable-impersonation" env:"ENABLE_IMPERSONATION" description:"Indicates that impersonation headers should be set on successful auth"`
+	ImpersonationBackends   CommaSeparatedList   `long:"impersonation-backends" env:"IMPERSONATION_BACKENDS" description:"Define trusted backends which are allowed for impersonation"`
 	ServiceAccountTokenPath string               `long:"service-account-token-path" env:"SERVICE_ACCOUNT_TOKEN_PATH" default:"/var/run/secrets/kubernetes.io/serviceaccount/token" description:"When impersonation is enabled, this token is passed via the Authorization header to the ingress. The user associated with the token must have impersonation privileges."`
 	Rules                   map[string]*Rule     `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
 	GroupClaimPrefix        string               `long:"group-claim-prefix" env:"GROUP_CLAIM_PREFIX" default:"oidc:" description:"prefix oidc group claims with this value"`
@@ -220,6 +221,9 @@ func (c *Config) Validate() {
 
 	// get service account token
 	if c.EnableImpersonation {
+		if len(c.ImpersonationBackends) == 0 {
+			log.Fatalf("Impersonation is enabled by no impersonation backends are defined")
+		}
 		t, err := ioutil.ReadFile(c.ServiceAccountTokenPath)
 		if err != nil {
 			log.Fatalf("impersonation is enabled, but failed to read %s : %v", c.ServiceAccountTokenPath, err)
