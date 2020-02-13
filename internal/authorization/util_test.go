@@ -17,7 +17,8 @@ func TestPathMatches(t *testing.T) {
 		{url: "/", pattern: "/", allow: true},
 		{url: "/xyz/subpath1/subpath2", pattern: "/xyz/*/subpath3", allow: false},
 		{url: "/ops/portal/admin", pattern: "/ops/portal/", allow: false},
-		{url: "/ops/portal/xyz.png", pattern: "/ops/portal/*.png", allow: true},
+		{url: "/ops/portal/xyz.png", pattern: "/ops/portal/*.png", allow: false},
+		{url: "/ops/portal/kibana/app/kibana", pattern: "/ops/portal/kibana/*", allow: true},
 	}
 
 	for _, c := range testCases {

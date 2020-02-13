@@ -416,20 +416,13 @@ func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
 }
 
 func (s *Server) authzIsBypassed(r *http.Request) bool {
-	bypassed := false
 	for _, bypassURIPattern := range config.AuthZPassThrough {
 		if authorization.PathMatches(r.URL.Path, bypassURIPattern) {
-			bypassed = true
-			break
+			s.log.Infof("authorization is disabled for %s", r.URL.Path)
+			return true
 		}
 	}
-
-	if bypassed {
-		s.log.Infof("authorization is disabled for %s", r.URL.Path)
-	}
-
-	return bypassed
-
+	return false
 }
 
 // appends group prefix to groups
