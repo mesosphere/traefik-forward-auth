@@ -9,6 +9,7 @@ import (
 	"github.com/containous/traefik/pkg/rules"
 	"github.com/coreos/go-oidc"
 	"github.com/gorilla/sessions"
+	"github.com/mesosphere/traefik-forward-auth/internal/authorization/groupmemberof"
 	"github.com/mesosphere/traefik-forward-auth/internal/authorization/rbac"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
@@ -162,8 +163,13 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		if config.EnableRBAC && !s.authzIsBypassed(r) {
 			kubeUserInfo := s.getModifiedUserInfo(email, groups)
 
-			logger.Debugf("authorizing user: %s, groups: %s", kubeUserInfo.Name, kubeUserInfo.Groups)
-			authorized, err := s.authorizer.Authorize(kubeUserInfo, r.Method, r.URL.Path)
+			logger.Debugf("rbac authorizing user: %s, groups: %s", kubeUserInfo.Name, kubeUserInfo.Groups)
+			m := map[string]interface{}{
+				"user":            kubeUserInfo,
+				"requestVerb":     r.Method,
+				"requestResource": r.URL.Path,
+			}
+			authorized, err := s.authorizer.Authorize(m)
 			if err != nil {
 				logger.Errorf("error while authorizing %s: %v", kubeUserInfo, err)
 				http.Error(w, "Bad Gateway", 502)
@@ -176,6 +182,29 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 				return
 			}
 			logger.Infof("user %s is authorized to `%s` in %s", kubeUserInfo.GetName(), r.Method, r.URL.Path)
+		}
+
+		if !config.EnableRBAC && config.GroupsMemberOf != "" {
+
+			logger.Debugf("group member authorizing user: %s, groups: %s", email, groups)
+			m := map[string]interface{}{
+				"userGroups":     groups,
+				"groupsMemberOf": config.GroupsMemberOf,
+			}
+
+			authorized, err := groupmemberof.Authorize(m)
+			if err != nil {
+				logger.Errorf("error while authorizing %s: %v", email, err)
+				http.Error(w, "Bad Gateway", 502)
+				return
+			}
+
+			if !authorized {
+				logger.Infof("user %s for is not authorized to `%s` in %s", email)
+				http.Error(w, "Not Authorized", 401)
+				return
+			}
+			logger.Infof("user %s is authorized to `%s` in %s", email, r.Method, r.URL.Path)
 		}
 
 		// Valid request

@@ -107,7 +107,12 @@ func (ra *RBACAuthorizer) GetRoles(user authorization.User) (*rbacv1.ClusterRole
 }
 
 // Interface methods
-func (ra *RBACAuthorizer) Authorize(user authorization.User, requestVerb, requestResource string) (bool, error) {
+func (ra *RBACAuthorizer) Authorize(m map[string]interface{}) (bool, error) {
+
+	user := m["user"].(authorization.User)
+	requestVerb := m["requestVerb"].(string)
+	requestResource := m["requestResource"].(string)
+
 	roles, err := ra.GetRoles(user)
 	if err != nil {
 		return false, err

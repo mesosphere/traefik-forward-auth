@@ -133,7 +133,12 @@ func TestRBACAuthorizer_Authorize(t *testing.T) {
 	a := getRBACAuthorizer(roles, bindings)
 
 	for _, test := range tests {
-		result, err := a.Authorize(test.user, test.verb, test.url)
+		m := map[string]interface{}{
+			"user":            test.user,
+			"requestVerb":     test.verb,
+			"requestResource": test.url,
+		}
+		result, err := a.Authorize(m)
 		assert.NilError(t, err)
 		assert.Equal(t, result, test.should)
 	}
