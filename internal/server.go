@@ -21,8 +21,6 @@ import (
 const (
 	impersonateUserHeader  = "Impersonate-User"
 	impersonateGroupHeader = "Impersonate-Group"
-	// TODO: sessionName needs to in config
-	sessionName = "_forward_auth_claims"
 )
 
 type Server struct {
@@ -308,7 +306,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 
 		logger.Printf("creating group claims session with groups: %v", groups)
-		session, err := s.sessionStore.Get(r, sessionName)
+		session, err := s.sessionStore.Get(r, config.GroupsSessionName)
 		if err != nil {
 			logger.Errorf("failed to get group claims session: %v", err)
 			http.Error(w, "Bad Gateway", 502)
@@ -394,7 +392,7 @@ func (s *Server) logger(r *http.Request, rule, msg string) *logrus.Entry {
 }
 
 func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
-	session, err := s.sessionStore.Get(r, sessionName)
+	session, err := s.sessionStore.Get(r, config.GroupsSessionName)
 	if err != nil {
 		return nil, fmt.Errorf("error getting session: %w", err)
 	}
