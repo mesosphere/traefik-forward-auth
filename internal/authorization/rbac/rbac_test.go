@@ -138,3 +138,23 @@ func TestRBACAuthorizer_Authorize(t *testing.T) {
 		assert.Equal(t, result, test.should)
 	}
 }
+
+
+func TestRBACAuthorizer_Authorize2(t *testing.T) {
+	test := testCase{
+
+			user: authorization.User{Name: "boyle@ldap.forumsys.com", Groups:[]string{"oidc:chemists"}},
+			url: "/ops/portal/grafana/public/fonts/roboto/RxZJdnzeo3R5zSexge8UUVtXRa8TVwTICgirnJhmVJw.woff2",
+			should: allow,
+
+	}
+
+	role := makeRole("grafana-admin", []string{"*"}, []string{"/ops/portal/grafana", "/ops/portal/grafana/*"})
+	rolebinding := makeBinding("User", "grafana-admin-boyle", "boyle@ldap.forumsys.com", "grafana-admin")
+
+	a := getRBACAuthorizer(&role, &rolebinding)
+	result, err := a.Authorize(test.user, test.verb, test.url)
+
+	assert.NilError(t, err)
+	assert.Equal(t, result, test.should)
+}

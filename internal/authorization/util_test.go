@@ -19,6 +19,8 @@ func TestPathMatches(t *testing.T) {
 		{url: "/ops/portal/admin", pattern: "/ops/portal/", allow: false},
 		{url: "/ops/portal/xyz.png", pattern: "/ops/portal/*.png", allow: false},
 		{url: "/ops/portal/kibana/app/kibana", pattern: "/ops/portal/kibana/*", allow: true},
+		{url: "/ops/portal/grafana/public/img/fav32.png", pattern: "/ops/portal/grafana/*", allow: true},
+		{url: "/ops/portal/grafana/public/build/runtime.3932bda029d2299a9d96.js", pattern: "/ops/portal/grafana/*", allow: true},
 	}
 
 	for _, c := range testCases {
