@@ -234,7 +234,7 @@ func (c *Config) SetOidcProvider() {
 	c.OIDCContext = context.Background()
 	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderUri)
 	if err != nil {
-		log.Fatal("failed to get provider configuration: %v", err)
+		log.Fatal("failed to get provider configuration for %s: %v (hint: make sure %s is accessible from the cluster)", c.ProviderUri, err, c.ProviderUri)
 	}
 	c.OIDCProvider = provider
 }
