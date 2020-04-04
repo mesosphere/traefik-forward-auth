@@ -178,7 +178,9 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 
 		// Valid request
 		logger.Debugf("Allow request from %s", email)
-		w.Header().Set("X-Forwarded-User", email)
+		for _, headerName := range config.EmailHeaderNames {
+			w.Header().Set(headerName, email)
+		}
 
 		if config.EnableImpersonation {
 			// Set impersonation headers
