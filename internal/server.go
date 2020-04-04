@@ -146,7 +146,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		// Authorize user
 		groups, err := s.getGroupsFromSession(r)
 		if err != nil {
-			logger.Errorf("error getting groups from session: %w", err)
+			logger.Errorf("error getting groups from session: %v", err)
 			s.notAuthenticated(logger, w, r)
 			return
 		}
