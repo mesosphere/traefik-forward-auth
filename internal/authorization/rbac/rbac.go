@@ -28,6 +28,8 @@ type Authorizer struct {
 	syncDuration             time.Duration
 	informerStop             chan struct{}
 	selector                 labels.Selector
+	// If CaseInsensitiveSubjects is true, group and user names are compared case-insensitively (default false)
+	CaseInsensitiveSubjects bool
 }
 
 // NewAuthorizer creates a new RBAC authorizer
@@ -68,7 +70,7 @@ func (ra *Authorizer) getRoleFromGroups(roleNameRef, subjectGroupName string, us
 	// for every user group...
 	for _, group := range userGroups {
 		// if the group matches the group name in the subject, return the role
-		if group == subjectGroupName {
+		if compareSubjects(group, subjectGroupName, ra.CaseInsensitiveSubjects) {
 			return ra.getRoleByName(roleNameRef)
 		}
 	}
@@ -80,7 +82,7 @@ func (ra *Authorizer) getRoleFromGroups(roleNameRef, subjectGroupName string, us
 // getRoleForSubject gets the role bound to the subject depending on the subject kind (user or group).
 // Returns nil if there is no rule matching or an unknown subject Kind is provided
 func (ra *Authorizer) getRoleForSubject(user authorization.User, subject rbacv1.Subject, roleNameRef string) *rbacv1.ClusterRole {
-	if subject.Kind == "User" && subject.Name == user.GetName() {
+	if subject.Kind == "User" && compareSubjects(subject.Name, user.GetName(), ra.CaseInsensitiveSubjects) {
 		return ra.getRoleByName(roleNameRef)
 	} else if subject.Kind == "Group" {
 		return ra.getRoleFromGroups(roleNameRef, subject.Name, user.GetGroups())
@@ -153,7 +155,7 @@ func verbMatches(rule *rbacv1.PolicyRule, requestedVerb string) bool {
 		if ruleVerb == rbacv1.VerbAll {
 			return true
 		}
-		if strings.ToLower(ruleVerb) == strings.ToLower(requestedVerb) {
+		if strings.EqualFold(ruleVerb, requestedVerb) {
 			return true
 		}
 	}
@@ -172,4 +174,14 @@ func nonResourceURLMatches(rule *rbacv1.PolicyRule, requestedURL string) bool {
 		}
 	}
 	return false
+}
+
+// compareSubjects determines whether subjects names are equal (string equality is used).
+// If caseInsensitive is true, the case of the characters is ignored, meaning "UserName"
+// would be considered equal to "username".
+func compareSubjects(s1, s2 string, caseInsensitive bool) bool {
+	if caseInsensitive == false {
+		return s1 == s2
+	}
+	return strings.EqualFold(s1, s2)
 }
