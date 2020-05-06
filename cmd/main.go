@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gorilla/sessions"
 	"k8s.io/client-go/kubernetes"
@@ -40,8 +41,14 @@ func main() {
 		clientset = nil
 	}
 
+	// Prepare cookie session store (first key is for auth, the second one for encryption)
+	cookieStore := sessions.NewCookieStore(config.Secret, []byte(config.SessionKey))
+	cookieStore.Options.MaxAge = int(config.Lifetime / time.Second)
+	cookieStore.Options.HttpOnly = true
+	cookieStore.Options.Secure = !config.InsecureCookie
+
 	// Build server
-	server := internal.NewServer(sessions.NewCookieStore([]byte(config.SessionKey)), clientset)
+	server := internal.NewServer(cookieStore, clientset)
 
 	// Attach router to default server
 	http.HandleFunc("/", server.RootHandler)
