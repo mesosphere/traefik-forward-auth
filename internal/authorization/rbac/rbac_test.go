@@ -25,7 +25,7 @@ type testCase struct {
 }
 
 func getRBACAuthorizer(objs ...runtime.Object) *Authorizer {
-	return NewAuthorizer(fake.NewSimpleClientset(objs...))
+	return NewAuthorizer(fake.NewSimpleClientset(objs...), nil)
 }
 
 func makeRole(name string, verbs, urls []string) rbacv1.ClusterRole {

@@ -48,7 +48,7 @@ func NewServer(userinfo v1alpha1.UserInfoInterface, clientset kubernetes.Interfa
 	s.buildRoutes()
 	s.userinfo = userinfo
 	if config.EnableRBAC {
-		rbac := rbac.NewAuthorizer(clientset)
+		rbac := rbac.NewAuthorizer(clientset, s.log)
 		rbac.CaseInsensitiveSubjects = config.CaseInsensitiveSubjects
 		s.authorizer = rbac
 	}
