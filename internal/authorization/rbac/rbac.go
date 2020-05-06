@@ -2,6 +2,7 @@ package rbac
 
 import (
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -16,13 +17,21 @@ import (
 )
 
 const (
-	// using config would be a circular import unless I wanted to fix everything now
-	// TODO (jr): fix everything
-	cacheSyncDuration = time.Minute * time.Duration(10)
+	// How often the informer should perform a resync (list all resources and rehydrate the informer’s store).
+	// This creates a higher guarantee that your informer’s store has a perfect picture of the resources it is watching.
+	// There are situations where events can be missed entirely and resyncing every so often solves this.
+	// Setting to 0 disables the resync and makes the informer subscribe to individual updates only.
+	defaultResyncDuration = time.Duration(10) * time.Minute
 )
+
+// Logger is an interface for basic log output
+type Logger interface {
+	Printf(format string, v ...interface{})
+}
 
 // Authorizer implements the authorizer by watching and using ClusterRole and ClusterRoleBinding Kubernetes (RBAC) objects
 type Authorizer struct {
+	logger                   Logger
 	clientset                kubernetes.Interface
 	clusterRoleLister        rbaclisterv1.ClusterRoleLister
 	clusterRoleBindingLister rbaclisterv1.ClusterRoleBindingLister
@@ -32,11 +41,16 @@ type Authorizer struct {
 	selector                 labels.Selector
 }
 
-// NewAuthorizer creates a new RBAC authorizer
-func NewAuthorizer(clientset kubernetes.Interface) *Authorizer {
+// NewAuthorizer creates a new RBAC authorizer. Logger can be nil to use standard error logger.
+func NewAuthorizer(clientset kubernetes.Interface, logger Logger) *Authorizer {
+	if logger == nil {
+		logger = log.New(os.Stderr, "rbac", log.LstdFlags)
+	}
+
 	authz := &Authorizer{
+		logger:       logger,
 		clientset:    clientset,
-		syncDuration: cacheSyncDuration,
+		syncDuration: defaultResyncDuration,
 		selector:     labels.NewSelector(),
 		informerStop: make(chan struct{}),
 	}
@@ -51,14 +65,9 @@ func (ra *Authorizer) getRoleByName(name string) *rbacv1.ClusterRole {
 	clusterRole, err := ra.clusterRoleLister.Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// TFA's "internal" package doesn't make sense for expanding functionality.
-			// IMO, TFA should be rewritten completely using current golang design standards
-			// TODO(jr): Rewrite TFA as a lightweight forward proxy
-			// ^^ using stdlib log because I don't want to parse the configuration file again for
-			// two log messages... (jr) (or muck up my interfaces by passing in a log object..)
-			log.Printf("role binding %s is bound to non-existent role", name)
+			ra.logger.Printf("role binding is bound to non-existent role %s", name)
 		} else {
-			log.Printf("error getting role bound to %s: %v", name, err)
+			ra.logger.Printf("error getting role %s from role binding: %v", name, err)
 		}
 		return nil
 	}
