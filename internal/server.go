@@ -39,7 +39,7 @@ func NewServer(sessionStore sessions.Store, clientset kubernetes.Interface) *Ser
 	s.buildRoutes()
 	s.sessionStore = sessionStore
 	if config.EnableRBAC {
-		rbac := rbac.NewAuthorizer(clientset)
+		rbac := rbac.NewAuthorizer(clientset, s.log)
 		rbac.CaseInsensitiveSubjects = config.CaseInsensitiveSubjects
 		s.authorizer = rbac
 	}
