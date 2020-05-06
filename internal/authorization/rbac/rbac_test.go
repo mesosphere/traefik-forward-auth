@@ -156,3 +156,61 @@ func TestRBACAuthorizer_Authorize2(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, result, test.should)
 }
+
+func TestCaseInsensitiveSubjects(t *testing.T) {
+	type testCase struct {
+		authorizer authorization.Authorizer
+		user       authorization.User
+		url        string
+		should     bool
+	}
+
+	// declare roles and bindings all lower-case
+	role := makeRole("grafana-admin", []string{"*"}, []string{"/ops/portal/grafana", "/ops/portal/grafana/*"})
+	rolebindings := makeClusterRoleBindingList(
+		makeBinding("User", "grafana-admin-boyle", "boyle@ldap.forumsys.com", "grafana-admin"),
+		makeBinding("Group", "grafana-admin-oidc-admins", "oidc:admins", "grafana-admin"),
+	)
+
+	// default authorizer
+	defaultAuthorizer := getRBACAuthorizer(&role, rolebindings)
+
+	// case-insensitive authorizer
+	caseInsensitiveAuthorizer := getRBACAuthorizer(&role, rolebindings)
+	caseInsensitiveAuthorizer.CaseInsensitiveSubjects = true
+
+	tests := []testCase{
+		// users
+		{
+			authorizer: defaultAuthorizer,
+			user:       authorization.User{Name: "Boyle@ldap.forumsys.com", Groups: []string{"oidc:chemists"}},
+			url:        "/ops/portal/grafana/rnJhmVJw.woff2",
+			should:     false, // default case-sensitive user comparison shouldn't allow Boyle
+		},
+		{
+			authorizer: caseInsensitiveAuthorizer,
+			user:       authorization.User{Name: "Boyle@ldap.forumsys.com", Groups: []string{"oidc:chemists"}},
+			url:        "/ops/portal/grafana/rnJhmVJw.woff2",
+			should:     true, // case-insensitive user comparison should allow Boyle
+		},
+		// groups
+		{
+			authorizer: defaultAuthorizer,
+			user:       authorization.User{Name: "agent47@ldap.forumsys.com", Groups: []string{"oidc:Admins"}},
+			url:        "/ops/portal/grafana/rnJhmVJw.woff2",
+			should:     false, // default case-sensitive group comparison shouldn't allow Admins group
+		},
+		{
+			authorizer: caseInsensitiveAuthorizer,
+			user:       authorization.User{Name: "agent47@ldap.forumsys.com", Groups: []string{"oidc:Admins"}},
+			url:        "/ops/portal/grafana/rnJhmVJw.woff2",
+			should:     true, // case-insensitive group comparison should allow Admins group
+		},
+	}
+
+	for _, test := range tests {
+		result, err := test.authorizer.Authorize(test.user, "GET", test.url)
+		assert.NilError(t, err)
+		assert.Equal(t, result, test.should)
+	}
+}
