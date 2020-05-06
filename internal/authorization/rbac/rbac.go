@@ -21,7 +21,8 @@ const (
 	cacheSyncDuration = time.Minute * time.Duration(10)
 )
 
-type RBACAuthorizer struct {
+// Authorizer implements the authorizer by watching and using ClusterRole and ClusterRoleBinding Kubernetes (RBAC) objects
+type Authorizer struct {
 	clientset                kubernetes.Interface
 	clusterRoleLister        rbaclisterv1.ClusterRoleLister
 	clusterRoleBindingLister rbaclisterv1.ClusterRoleBindingLister
@@ -31,8 +32,9 @@ type RBACAuthorizer struct {
 	selector                 labels.Selector
 }
 
-func NewRBACAuthorizer(clientset kubernetes.Interface) *RBACAuthorizer {
-	authz := &RBACAuthorizer{
+// NewAuthorizer creates a new RBAC authorizer
+func NewAuthorizer(clientset kubernetes.Interface) *Authorizer {
+	authz := &Authorizer{
 		clientset:    clientset,
 		syncDuration: cacheSyncDuration,
 		selector:     labels.NewSelector(),
@@ -43,7 +45,9 @@ func NewRBACAuthorizer(clientset kubernetes.Interface) *RBACAuthorizer {
 }
 
 // Private
-func (ra *RBACAuthorizer) getRoleByName(name string) *rbacv1.ClusterRole {
+
+// getRoleByName finds the ClusterRole by its name or returns nil
+func (ra *Authorizer) getRoleByName(name string) *rbacv1.ClusterRole {
 	clusterRole, err := ra.clusterRoleLister.Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -61,25 +65,32 @@ func (ra *RBACAuthorizer) getRoleByName(name string) *rbacv1.ClusterRole {
 	return clusterRole
 }
 
-func (ra *RBACAuthorizer) getRoleFromGroups(target, role string, groups []string) *rbacv1.ClusterRole {
-	for _, group := range groups {
-		if group == target {
-			return ra.getRoleByName(role)
+// getRoleFromGroups returns role specified in roleNameRef only if subjectGroupName is in the userGroups list
+func (ra *Authorizer) getRoleFromGroups(roleNameRef, subjectGroupName string, userGroups []string) *rbacv1.ClusterRole {
+	// for every user group...
+	for _, group := range userGroups {
+		// if the group matches the group name in the subject, return the role
+		if group == subjectGroupName {
+			return ra.getRoleByName(roleNameRef)
 		}
 	}
+
+	// no user group match this subjectGroupName
 	return nil
 }
 
-func (ra *RBACAuthorizer) getRoleForSubject(user authorization.User, subject rbacv1.Subject, role string) *rbacv1.ClusterRole {
+// getRoleForSubject gets the role bound to the subject depending on the subject kind (user or group).
+// Returns nil if there is no rule matching or an unknown subject Kind is provided
+func (ra *Authorizer) getRoleForSubject(user authorization.User, subject rbacv1.Subject, roleNameRef string) *rbacv1.ClusterRole {
 	if subject.Kind == "User" && subject.Name == user.GetName() {
-		return ra.getRoleByName(role)
+		return ra.getRoleByName(roleNameRef)
 	} else if subject.Kind == "Group" {
-		return ra.getRoleFromGroups(subject.Name, role, user.GetGroups())
+		return ra.getRoleFromGroups(roleNameRef, subject.Name, user.GetGroups())
 	}
 	return nil
 }
 
-func (ra *RBACAuthorizer) prepareCache() {
+func (ra *Authorizer) prepareCache() {
 	ra.sharedInformerFactory = informers.NewSharedInformerFactory(ra.clientset, ra.syncDuration)
 	ra.clusterRoleLister = ra.sharedInformerFactory.Rbac().V1().ClusterRoles().Lister()
 	ra.clusterRoleBindingLister = ra.sharedInformerFactory.Rbac().V1().ClusterRoleBindings().Lister()
@@ -88,7 +99,9 @@ func (ra *RBACAuthorizer) prepareCache() {
 }
 
 // Public
-func (ra *RBACAuthorizer) GetRoles(user authorization.User) (*rbacv1.ClusterRoleList, error) {
+
+// GetRolesBoundToUser returns list of roles bound to the specified user or groups the user is part of
+func (ra *Authorizer) GetRolesBoundToUser(user authorization.User) (*rbacv1.ClusterRoleList, error) {
 	clusterRoles := rbacv1.ClusterRoleList{}
 	clusterRoleBindings, err := ra.clusterRoleBindingLister.List(ra.selector)
 	if err != nil {
@@ -107,29 +120,37 @@ func (ra *RBACAuthorizer) GetRoles(user authorization.User) (*rbacv1.ClusterRole
 }
 
 // Interface methods
-func (ra *RBACAuthorizer) Authorize(user authorization.User, requestVerb, requestResource string) (bool, error) {
-	roles, err := ra.GetRoles(user)
+
+// Authorize performs the authorization logic
+func (ra *Authorizer) Authorize(user authorization.User, requestVerb, requestResource string) (bool, error) {
+	roles, err := ra.GetRolesBoundToUser(user)
 	if err != nil {
 		return false, err
 	}
 
+	// deny if no roles defined
 	if len(roles.Items) < 1 {
 		return false, nil
 	}
 
+	// check all rules in the list of roles to see if any matches
 	for _, role := range roles.Items {
 		for _, rule := range role.Rules {
-			if VerbMatches(&rule, requestVerb) && NonResourceURLMatches(&rule, requestResource) {
+			if verbMatches(&rule, requestVerb) && nonResourceURLMatches(&rule, requestResource) {
 				return true, nil
 			}
 		}
 	}
 
+	// no rules match the request -> deny
 	return false, nil
 }
 
 // Utility
-func VerbMatches(rule *rbacv1.PolicyRule, requestedVerb string) bool {
+
+// verbMatches returns true if the requested verb matches a verb specifid in the rule
+// Also matches if the rule mentiones special "all verbs" rule *
+func verbMatches(rule *rbacv1.PolicyRule, requestedVerb string) bool {
 	for _, ruleVerb := range rule.Verbs {
 		if ruleVerb == rbacv1.VerbAll {
 			return true
@@ -142,7 +163,8 @@ func VerbMatches(rule *rbacv1.PolicyRule, requestedVerb string) bool {
 	return false
 }
 
-func NonResourceURLMatches(rule *rbacv1.PolicyRule, requestedURL string) bool {
+// nonResourceURLMatches returns true if the requested URL matches a policy the rule
+func nonResourceURLMatches(rule *rbacv1.PolicyRule, requestedURL string) bool {
 	for _, ruleURL := range rule.NonResourceURLs {
 		if ruleURL == rbacv1.NonResourceAll {
 			return true
