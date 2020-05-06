@@ -220,11 +220,11 @@ func TestAuthValidateCSRFCookie(t *testing.T) {
 
 func TestAuthNonce(t *testing.T) {
 	assert := assert.New(t)
-	err, nonce1 := Nonce()
+	nonce1, err := GenerateNonce()
 	assert.Nil(err, "error generating nonce")
 	assert.Len(nonce1, 32, "length should be 32 chars")
 
-	err, nonce2 := Nonce()
+	nonce2, err := GenerateNonce()
 	assert.Nil(err, "error generating nonce")
 	assert.Len(nonce2, 32, "length should be 32 chars")
 

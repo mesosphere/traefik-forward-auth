@@ -25,7 +25,8 @@ func NewAuthenticator(config *configuration.Config) *Authenticator {
 
 // Request Validation
 
-// Cookie = hash(secret, cookie domain, email, expires)|expires|email|groups
+// ValidateCookie validates the ID cookie in the request
+// IDCookie = hash(secret, cookie domain, email, expires)|expires|email|group
 func (a *Authenticator) ValidateCookie(r *http.Request, c *http.Cookie) (string, error) {
 	parts := strings.Split(c.Value, "|")
 
@@ -63,7 +64,8 @@ func (a *Authenticator) ValidateCookie(r *http.Request, c *http.Cookie) (string,
 	return parts[2], nil
 }
 
-// Validate email
+// ValidateEmail validates that the provided email ends with one of the configured Domains or is part of the configured Whitelist.
+// Also returns true if there is no Whitelist and no Domains configured.
 func (a *Authenticator) ValidateEmail(email string) bool {
 	if len(a.config.Whitelist) > 0 || len(a.config.Domains) > 0 {
 		for _, whitelist := range a.config.Whitelist {
@@ -83,17 +85,20 @@ func (a *Authenticator) ValidateEmail(email string) bool {
 	return true
 }
 
-// Get oauth redirect uri
-func (a *Authenticator) RedirectUri(r *http.Request) string {
+// ComposeRedirectURI generates oauth redirect uri to return to from the OAuth2 provider
+func (a *Authenticator) ComposeRedirectURI(r *http.Request) string {
 	if use, _ := a.useAuthDomain(r); use {
-		proto := r.Header.Get("X-Forwarded-Proto")
-		return fmt.Sprintf("%s://%s%s", proto, a.config.AuthHost, a.config.Path)
+		scheme := r.Header.Get("X-Forwarded-Proto")
+		return fmt.Sprintf("%s://%s%s", scheme, a.config.AuthHost, a.config.Path)
+
 	}
 
-	return fmt.Sprintf("%s%s", redirectBase(r), a.config.Path)
+	return fmt.Sprintf("%s%s", getRequestSchemeHost(r), a.config.Path)
 }
 
-// Should we use auth host + what it is
+// useAuthDomain decides whether the host of the forwarded request
+// matches the configured AuthHost and whether we can configure cookies for the AuthHost
+// If it does, the function returns true and the top-level domain from the config we can use
 func (a *Authenticator) useAuthDomain(r *http.Request) (bool, string) {
 	if a.config.AuthHost == "" {
 		return false, ""
@@ -111,7 +116,7 @@ func (a *Authenticator) useAuthDomain(r *http.Request) (bool, string) {
 
 // Cookie methods
 
-// Create an auth cookie
+// MakeIDCookie creates an auth cookie
 func (a *Authenticator) MakeIDCookie(r *http.Request, email string) *http.Cookie {
 	expires := a.cookieExpiry()
 	mac := a.cookieSignature(r, email, fmt.Sprintf("%d", expires.Unix()))
@@ -128,7 +133,7 @@ func (a *Authenticator) MakeIDCookie(r *http.Request, email string) *http.Cookie
 	}
 }
 
-// Create a name cookie
+// MakeNameCookie creates a name cookie
 func (a *Authenticator) MakeNameCookie(r *http.Request, name string) *http.Cookie {
 	expires := a.cookieExpiry()
 
@@ -143,7 +148,7 @@ func (a *Authenticator) MakeNameCookie(r *http.Request, name string) *http.Cooki
 	}
 }
 
-// Make a CSRF cookie (used during login only)
+// MakeCSRFCookie creates a CSRF cookie (used during login only)
 func (a *Authenticator) MakeCSRFCookie(r *http.Request, nonce string) *http.Cookie {
 	return &http.Cookie{
 		Name:     a.config.CSRFCookieName,
@@ -156,7 +161,7 @@ func (a *Authenticator) MakeCSRFCookie(r *http.Request, nonce string) *http.Cook
 	}
 }
 
-// Create a cookie to clear csrf cookie
+// ClearCSRFCookie clears the csrf cookie
 func (a *Authenticator) ClearCSRFCookie(r *http.Request) *http.Cookie {
 	return &http.Cookie{
 		Name:     a.config.CSRFCookieName,
@@ -169,7 +174,7 @@ func (a *Authenticator) ClearCSRFCookie(r *http.Request) *http.Cookie {
 	}
 }
 
-// Validate the csrf cookie against state
+// ValidateCSRFCookie validates the csrf cookie against state
 func ValidateCSRFCookie(r *http.Request, c *http.Cookie) (bool, string, error) {
 	state := r.URL.Query().Get("state")
 
@@ -190,15 +195,16 @@ func ValidateCSRFCookie(r *http.Request, c *http.Cookie) (bool, string, error) {
 	return true, state[33:], nil
 }
 
-func Nonce() (error, string) {
+// GenerateNonce generates a random nonce string
+func GenerateNonce() (string, error) {
 	// Make nonce
 	nonce := make([]byte, 16)
 	_, err := rand.Read(nonce)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 
-	return nil, fmt.Sprintf("%x", nonce)
+	return fmt.Sprintf("%x", nonce), nil
 }
 
 // Cookie domain
@@ -224,7 +230,10 @@ func (a *Authenticator) csrfCookieDomain(r *http.Request) string {
 	return p[0]
 }
 
-// Return matching cookie domain if exists
+// matchCookieDomains checks if the provided domain maches any domain configured in the CookieDomains list
+// and returns the domain from the list it matched with.
+// The match is either the direct equality of domain names or the input subdomain (e.g. "a.test.com") belongs under a configured top domain ("test.com").
+// If the domain does not match CookieDomains, false is returned with the input domain as the second return value.
 func (a *Authenticator) matchCookieDomains(domain string) (bool, string) {
 	// Remove port
 	p := strings.Split(domain, ":")
@@ -240,7 +249,7 @@ func (a *Authenticator) matchCookieDomains(domain string) (bool, string) {
 	return false, p[0]
 }
 
-// Create cookie hmac
+// cookieSignature creates a cookie hmac
 func (a *Authenticator) cookieSignature(r *http.Request, email, expires string) string {
 	hash := hmac.New(sha256.New, a.config.Secret)
 	hash.Write([]byte(a.GetCookieDomain(r)))
@@ -256,21 +265,26 @@ func (a *Authenticator) cookieExpiry() time.Time {
 
 // Utility methods
 
-// Get the redirect base
-func redirectBase(r *http.Request) string {
+// getRequestSchemeHost returns scheme://host part of the request
+// Example output: "https://domain.com"
+func getRequestSchemeHost(r *http.Request) string {
 	proto := r.Header.Get("X-Forwarded-Proto")
 	host := r.Header.Get("X-Forwarded-Host")
 
 	return fmt.Sprintf("%s://%s", proto, host)
 }
 
-func GetUriPath(r *http.Request) string {
+// GetRequestURI returns the full request URI with query parameters.
+// The path includes the prefix (if stripPrefix middleware was used).
+// Example output: "/prefix/path?query=1"
+func GetRequestURI(r *http.Request) string {
 	prefix := r.Header.Get("X-Forwarded-Prefix")
 	uri := r.Header.Get("X-Forwarded-Uri")
 	return fmt.Sprintf("%s/%s", strings.TrimRight(prefix, "/"), strings.TrimLeft(uri, "/"))
 }
 
-// // Return url
-func ReturnUrl(r *http.Request) string {
-	return fmt.Sprintf("%s%s", redirectBase(r), GetUriPath(r))
+// GetRequestURL returns full requst URL scheme://host/uri with query params
+// Example output: "https://domain.com/prefix/path?query=1"
+func GetRequestURL(r *http.Request) string {
+	return fmt.Sprintf("%s%s", getRequestSchemeHost(r), GetRequestURI(r))
 }

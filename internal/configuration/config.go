@@ -29,12 +29,13 @@ var (
 	log    logrus.FieldLogger
 )
 
+// Config holds app configuration
 type Config struct {
 	LogLevel  string `long:"log-level" env:"LOG_LEVEL" default:"warn" choice:"trace" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" choice:"panic" description:"Log level"`
 	LogFormat string `long:"log-format"  env:"LOG_FORMAT" default:"text" choice:"text" choice:"json" choice:"pretty" description:"Log format"`
 
-	ProviderUri             string               `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
-	ClientId                string               `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
+	ProviderURI             string               `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
+	ClientID                string               `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
 	ClientSecret            string               `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
 	Scope                   string               `long:"scope" env:"SCOPE" description:"Define scope"`
 	AuthHost                string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
@@ -209,6 +210,7 @@ func convertLegacyToIni(name string) (io.Reader, error) {
 	return bytes.NewReader(legacyFileFormat.ReplaceAll(b, []byte("$1=$2"))), nil
 }
 
+// Validate validates the provided config
 func (c *Config) Validate() {
 	// Check for show stopper errors
 	if len(c.SecretString) == 0 {
@@ -217,7 +219,7 @@ func (c *Config) Validate() {
 		log.Infoln("for better security, \"secret\" should ideally be 32 bytes or longer")
 	}
 
-	if c.ProviderUri == "" || c.ClientId == "" || c.ClientSecret == "" {
+	if c.ProviderURI == "" || c.ClientID == "" || c.ClientSecret == "" {
 		log.Fatal("provider-uri, client-id, client-secret must be set")
 	}
 
@@ -250,13 +252,16 @@ func (c *Config) Validate() {
 	}
 }
 
-func (c *Config) SetOidcProvider() {
+// LoadOIDCProviderConfiguration loads the configuration of OpenID Connect provider
+func (c *Config) LoadOIDCProviderConfiguration() error {
 	// Fetch OIDC Provider configuration
-	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderUri)
+	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderURI)
 	if err != nil {
-		log.Fatalf("failed to get provider configuration for %s: %v (hint: make sure %s is accessible from the cluster)", c.ProviderUri, err, c.ProviderUri)
+		return fmt.Errorf("failed to get provider configuration for %s: %v (hint: make sure %s is accessible from the cluster)",
+			c.ProviderURI, err, c.ProviderURI)
 	}
 	c.OIDCProvider = provider
+	return nil
 }
 
 func (c Config) String() string {

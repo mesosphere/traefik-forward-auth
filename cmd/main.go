@@ -29,7 +29,9 @@ func main() {
 	config.Validate()
 
 	// Query the OIDC provider
-	config.SetOidcProvider()
+	if err := config.LoadOIDCProviderConfiguration(); err != nil {
+		log.Fatalln(err.Error())
+	}
 
 	authenticator := authentication.NewAuthenticator(config)
 	// Get clientset for Authorizers
@@ -77,7 +79,7 @@ func main() {
 	http.HandleFunc("/", server.RootHandler)
 
 	// Start
-	log.Debugf("Starting with options: %s", config)
-	log.Info("Listening on :4181")
+	log.Debugf("starting with options: %s", config)
+	log.Info("listening on :4181")
 	log.Info(http.ListenAndServe(":4181", nil))
 }
