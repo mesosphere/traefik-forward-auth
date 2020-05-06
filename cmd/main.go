@@ -24,7 +24,9 @@ func main() {
 	config.Validate()
 
 	// Query the OIDC provider
-	config.SetOidcProvider()
+	if err := config.LoadOIDCProviderConfiguration(); err != nil {
+		log.Fatalln(err.Error())
+	}
 
 	// Get clientset for Authorizers
 	var clientset kubernetes.Interface
@@ -37,8 +39,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("error getting kubernetes client: %v", err)
 		}
-	} else {
-		clientset = nil
 	}
 
 	// Prepare cookie session store (first key is for auth, the second one for encryption)
@@ -54,7 +54,7 @@ func main() {
 	http.HandleFunc("/", server.RootHandler)
 
 	// Start
-	log.Debugf("Starting with options: %s", config)
-	log.Info("Listening on :4181")
+	log.Debugf("starting with options: %s", config)
+	log.Info("listening on :4181")
 	log.Info(http.ListenAndServe(":4181", nil))
 }

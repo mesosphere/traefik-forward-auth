@@ -24,8 +24,8 @@ type testCase struct {
 	should bool
 }
 
-func getRBACAuthorizer(objs ...runtime.Object) *RBACAuthorizer {
-	return NewRBACAuthorizer(fake.NewSimpleClientset(objs...))
+func getRBACAuthorizer(objs ...runtime.Object) *Authorizer {
+	return NewAuthorizer(fake.NewSimpleClientset(objs...))
 }
 
 func makeRole(name string, verbs, urls []string) rbacv1.ClusterRole {
@@ -98,7 +98,7 @@ func TestRBACAuthorizer_GetRoles(t *testing.T) {
 	a := getRBACAuthorizer(roles, bindings)
 
 	u1 := authorization.User{Name: "u1"}
-	r, err := a.GetRoles(u1)
+	r, err := a.GetRolesBoundToUser(u1)
 
 	assert.NilError(t, err)
 	assert.Equal(t, len(r.Items), 2)
@@ -107,7 +107,7 @@ func TestRBACAuthorizer_GetRoles(t *testing.T) {
 
 	u2 := authorization.User{Name: "u2", Groups: []string{"g1", "g2"}}
 
-	r, err = a.GetRoles(u2)
+	r, err = a.GetRolesBoundToUser(u2)
 	assert.NilError(t, err)
 	assert.Equal(t, len(r.Items), 1)
 	assert.Equal(t, r.Items[0].Name, "r3")
@@ -139,14 +139,12 @@ func TestRBACAuthorizer_Authorize(t *testing.T) {
 	}
 }
 
-
 func TestRBACAuthorizer_Authorize2(t *testing.T) {
 	test := testCase{
 
-			user: authorization.User{Name: "boyle@ldap.forumsys.com", Groups:[]string{"oidc:chemists"}},
-			url: "/ops/portal/grafana/public/fonts/roboto/RxZJdnzeo3R5zSexge8UUVtXRa8TVwTICgirnJhmVJw.woff2",
-			should: allow,
-
+		user:   authorization.User{Name: "boyle@ldap.forumsys.com", Groups: []string{"oidc:chemists"}},
+		url:    "/ops/portal/grafana/public/fonts/roboto/RxZJdnzeo3R5zSexge8UUVtXRa8TVwTICgirnJhmVJw.woff2",
+		should: allow,
 	}
 
 	role := makeRole("grafana-admin", []string{"*"}, []string{"/ops/portal/grafana", "/ops/portal/grafana/*"})
