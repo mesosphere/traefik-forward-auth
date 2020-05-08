@@ -201,6 +201,8 @@ func (c *Config) Validate() {
 	// Check for show stopper errors
 	if len(c.SecretString) == 0 {
 		log.Fatal("\"secret\" option must be set.")
+	} else if len(c.SecretString) < 32 {
+		log.Infoln("for better security, \"secret\" should ideally be 32 bytes or longer")
 	}
 
 	if c.ProviderUri == "" || c.ClientId == "" || c.ClientSecret == "" {
@@ -226,6 +228,13 @@ func (c *Config) Validate() {
 			log.Fatalf("impersonation is enabled, but failed to read %s : %v", c.ServiceAccountTokenPath, err)
 		}
 		c.ServiceAccountToken = strings.TrimSuffix(string(t), "\n")
+	}
+
+	// RBAC
+	if c.EnableRBAC && len(c.SessionKey) != 16 && len(c.SessionKey) != 24 && len(c.SessionKey) != 32 {
+		// Gorilla sessions require encryption keys of specific length
+		// https://www.gorillatoolkit.org/pkg/sessions#NewCookieStore
+		log.Fatal("\"session-key\" must be 16, 24 or 32 bytes long to select AES-128, AES-192, or AES-256 modes")
 	}
 }
 

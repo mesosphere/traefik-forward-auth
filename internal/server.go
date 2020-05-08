@@ -308,13 +308,22 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		logger.Printf("creating group claims session with groups: %v", groups)
 		session, err := s.sessionStore.Get(r, config.GroupsSessionName)
 		if err != nil {
-			logger.Errorf("failed to get group claims session: %v", err)
+			// from the .Get() documentation:
+			// "It returns a new session and an error if the session exists but could not be decoded."
+			// So it's ok to ignore and use the newly-created secure session! No need to hard-fail here.
+			logger.Errorf("unable to decode existing session with group claims (creating a new one): %v", err)
+		}
+
+		if session == nil {
+			// should never happen
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
+
 		session.Values["groups"] = make([]string, len(groups))
 		copy(session.Values["groups"].([]string), groups)
 
+		session.Options.Domain = cookieDomain(r)
 		if err := session.Save(r, w); err != nil {
 			logger.Errorf("error saving session: %v", err)
 			http.Error(w, "Bad Gateway", 502)
