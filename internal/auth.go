@@ -1,57 +1,37 @@
 package tfa
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/securecookie"
 )
+
+// sessionCookie is a structure holding session cookie data
+type sessionCookie struct {
+	EMail   string
+	Groups  []string
+	IDToken string
+}
 
 // Request Validation
 
-// validateCookie validates the ID cookie in the request
-// IDCookie = hash(secret, cookie domain, email, expires)|expires|email
-func validateCookie(r *http.Request, c *http.Cookie) (string, error) {
-	parts := strings.Split(c.Value, "|")
+// validateSessionCookie validates the session cookie in the request and returns the decoded session data
+func validateSessionCookie(r *http.Request, c *http.Cookie) (*sessionCookie, error) {
+	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(cookieMaxAge())
 
-	if len(parts) != 3 {
-		return "", errors.New("invalid cookie format")
-	}
+	var data sessionCookie
 
-	mac, err := base64.URLEncoding.DecodeString(parts[0])
+	err := sc.Decode(config.CookieName, c.Value, &data)
 	if err != nil {
-		return "", errors.New("unable to decode cookie mac")
+		return nil, err
 	}
 
-	expectedSignature := cookieSignature(r, parts[2], parts[1])
-	expected, err := base64.URLEncoding.DecodeString(expectedSignature)
-	if err != nil {
-		return "", errors.New("unable to generate mac")
-	}
-
-	// Valid token?
-	if !hmac.Equal(mac, expected) {
-		return "", errors.New("invalid cookie mac")
-	}
-
-	expires, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return "", errors.New("unable to parse cookie expiry")
-	}
-
-	// Has it expired?
-	if time.Unix(expires, 0).Before(time.Now()) {
-		return "", errors.New("cookie has expired")
-	}
-
-	// Looks valid
-	return parts[2], nil
+	return &data, err
 }
 
 // validateEmail validates that the provided email ends with one of the configured Domains or is part of the configured Whitelist.
@@ -131,20 +111,23 @@ func useAuthDomain(r *http.Request) (bool, string) {
 
 // Cookie methods
 
-// makeIDCookie creates an auth cookie
-func makeIDCookie(r *http.Request, email string) *http.Cookie {
-	expires := cookieExpiry()
-	mac := cookieSignature(r, email, fmt.Sprintf("%d", expires.Unix()))
-	value := fmt.Sprintf("%s|%d|%s", mac, expires.Unix(), email)
+// makeSessionCookie creates an authenticated and encrypted cookie holding session data
+func makeSessionCookie(r *http.Request, data sessionCookie) *http.Cookie {
+	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(cookieMaxAge())
+
+	encoded, err := sc.Encode(config.CookieName, data)
+	if err != nil {
+		return nil
+	}
 
 	return &http.Cookie{
 		Name:     config.CookieName,
-		Value:    value,
+		Value:    encoded,
 		Path:     "/",
 		Domain:   cookieDomain(r),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
-		Expires:  expires,
+		Expires:  cookieExpiry(),
 	}
 }
 
@@ -262,18 +245,13 @@ func matchCookieDomains(domain string) (bool, string) {
 	return false, p[0]
 }
 
-// cookieSignature create a cookie hmac
-func cookieSignature(r *http.Request, email, expires string) string {
-	hash := hmac.New(sha256.New, config.Secret)
-	hash.Write([]byte(cookieDomain(r)))
-	hash.Write([]byte(email))
-	hash.Write([]byte(expires))
-	return base64.URLEncoding.EncodeToString(hash.Sum(nil))
-}
-
 // cookieExpiry returns the expiration time, Lifetime duration since now
 func cookieExpiry() time.Time {
 	return time.Now().Local().Add(config.Lifetime)
+}
+
+func cookieMaxAge() int {
+	return int(config.Lifetime / time.Second)
 }
 
 // Cookie Domain

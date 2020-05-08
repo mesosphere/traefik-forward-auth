@@ -3,12 +3,26 @@ package tfa
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+var (
+	testAuthKey1 = "4Zhbg4n22r4I8Kdg1gHMzRWQpT7TOArD"
+	testAuthKey2 = "HhaAG845dg9b16xKk8yiX+XoBhEAeHnQ"
+	testEncKey1  = "8jAnK6NGuzEuH3y13V+5Bm2jgp5bv8ku"
+	testEncKey2  = "FmvAqxzYy9ru0WaSU6SkLHP1ScoSVF/t"
+)
+
+func newTestConfig(authKey, encKey string) *Config {
+	c, _ := NewConfig([]string{})
+	c.SecretString = authKey
+	c.EncryptionKeyString = encKey
+
+	return c
+}
 
 /**
  * Tests
@@ -16,53 +30,43 @@ import (
 
 func TestAuthValidateCookie(t *testing.T) {
 	assert := assert.New(t)
-	config, _ = NewConfig([]string{})
+	config = newTestConfig(testAuthKey1, testEncKey1)
 	r, _ := http.NewRequest("GET", "http://example.com", nil)
 	c := &http.Cookie{}
 
-	// Should require 3 parts
+	// Should not accept an empty value
 	c.Value = ""
-	_, err := validateCookie(r, c)
+	_, err := validateSessionCookie(r, c)
 	if assert.Error(err) {
-		assert.Equal("invalid cookie format", err.Error())
-	}
-	c.Value = "1|2"
-	_, err = validateCookie(r, c)
-	if assert.Error(err) {
-		assert.Equal("invalid cookie format", err.Error())
-	}
-	c.Value = "1|2|3|4"
-	_, err = validateCookie(r, c)
-	if assert.Error(err) {
-		assert.Equal("invalid cookie format", err.Error())
+		assert.Equal("securecookie: the value is not valid", err.Error())
 	}
 
 	// Should catch invalid mac
-	c.Value = "MQ==|2|3"
-	_, err = validateCookie(r, c)
+	c.Value = "MQ=="
+	_, err = validateSessionCookie(r, c)
 	if assert.Error(err) {
-		assert.Equal("invalid cookie mac", err.Error())
+		assert.Equal("securecookie: the value is not valid", err.Error())
 	}
 
 	// Should catch expired
 	config.Lifetime = time.Second * time.Duration(-1)
-	c = makeIDCookie(r, "test@test.com")
-	_, err = validateCookie(r, c)
+	c = makeSessionCookie(r, sessionCookie{EMail: "test@test.com"})
+	_, err = validateSessionCookie(r, c)
 	if assert.Error(err) {
-		assert.Equal("cookie has expired", err.Error())
+		assert.Equal("securecookie: expired timestamp", err.Error())
 	}
 
 	// Should accept valid cookie
 	config.Lifetime = time.Second * time.Duration(10)
-	c = makeIDCookie(r, "test@test.com")
-	email, err := validateCookie(r, c)
+	c = makeSessionCookie(r, sessionCookie{EMail: "test@test.com"})
+	sess, err := validateSessionCookie(r, c)
 	assert.Nil(err, "valid request should not return an error")
-	assert.Equal("test@test.com", email, "valid request should return user email")
+	assert.Equal("test@test.com", sess.EMail, "valid request should return user email")
 }
 
 func TestAuthValidateEmail(t *testing.T) {
 	assert := assert.New(t)
-	config, _ = NewConfig([]string{})
+	config = newTestConfig(testAuthKey1, testEncKey1)
 
 	// Should allow any
 	v := validateEmail("test@test.com")
@@ -102,7 +106,7 @@ func TestAuthValidateEmail(t *testing.T) {
 // }
 
 func getConfigWithLifetime() *Config {
-	config, _ := NewConfig([]string{})
+	config = newTestConfig(testAuthKey1, testEncKey1)
 	// Lifetime is set during validation, so we short circuit it here
 	config.Lifetime = time.Second * time.Duration(config.LifetimeString)
 	return config
@@ -115,11 +119,10 @@ func TestAuthMakeCookie(t *testing.T) {
 	r, _ := http.NewRequest("GET", "http://app.example.com", nil)
 	r.Header.Add("X-Forwarded-Host", "app.example.com")
 
-	c := makeIDCookie(r, "test@example.com")
+	c := makeSessionCookie(r, sessionCookie{EMail: "test@example.com"})
 	assert.Equal("_forward_auth", c.Name)
-	parts := strings.Split(c.Value, "|")
-	assert.Len(parts, 3, "cookie should be 3 parts")
-	_, err := validateCookie(r, c)
+	assert.Greater(len(c.Value), 18, "encoded securecookie should be longer")
+	_, err := validateSessionCookie(r, c)
 	assert.Nil(err, "should generate valid cookie")
 	assert.Equal("/", c.Path)
 	assert.Equal("app.example.com", c.Domain)
@@ -130,7 +133,7 @@ func TestAuthMakeCookie(t *testing.T) {
 
 	config.CookieName = "testname"
 	config.InsecureCookie = true
-	c = makeIDCookie(r, "test@example.com")
+	c = makeSessionCookie(r, sessionCookie{EMail: "test@example.com"})
 	assert.Equal("testname", c.Name)
 	assert.False(c.Secure)
 }

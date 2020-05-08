@@ -1,10 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
-	"time"
+	"os"
 
-	"github.com/gorilla/sessions"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -15,7 +15,11 @@ import (
 // Main
 func main() {
 	// Parse options
-	config := internal.NewGlobalConfig()
+	config, err := internal.NewGlobalConfig()
+	if err != nil {
+		fmt.Printf("%+v\n", err)
+		os.Exit(1)
+	}
 
 	// Setup logger
 	log := logger.NewDefaultLogger(config.LogLevel, config.LogFormat)
@@ -41,14 +45,8 @@ func main() {
 		}
 	}
 
-	// Prepare cookie session store (first key is for auth, the second one for encryption)
-	cookieStore := sessions.NewCookieStore(config.Secret, []byte(config.SessionKey))
-	cookieStore.Options.MaxAge = int(config.Lifetime / time.Second)
-	cookieStore.Options.HttpOnly = true
-	cookieStore.Options.Secure = !config.InsecureCookie
-
 	// Build server
-	server := internal.NewServer(cookieStore, clientset)
+	server := internal.NewServer(clientset)
 
 	// Attach router to default server
 	http.HandleFunc("/", server.RootHandler)

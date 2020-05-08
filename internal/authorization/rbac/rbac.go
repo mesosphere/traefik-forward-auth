@@ -2,6 +2,7 @@ package rbac
 
 import (
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -133,7 +134,7 @@ func (ra *Authorizer) GetRolesBoundToUser(user authorization.User) (*rbacv1.Clus
 // Interface methods
 
 // Authorize performs the authorization logic
-func (ra *Authorizer) Authorize(user authorization.User, requestVerb, requestResource string) (bool, error) {
+func (ra *Authorizer) Authorize(user authorization.User, requestVerb string, requestURL *url.URL) (bool, error) {
 	roles, err := ra.GetRolesBoundToUser(user)
 	if err != nil {
 		return false, err
@@ -147,7 +148,7 @@ func (ra *Authorizer) Authorize(user authorization.User, requestVerb, requestRes
 	// check all rules in the list of roles to see if any matches
 	for _, role := range roles.Items {
 		for _, rule := range role.Rules {
-			if verbMatches(&rule, requestVerb) && nonResourceURLMatches(&rule, requestResource) {
+			if verbMatches(&rule, requestVerb) && nonResourceURLMatches(&rule, requestURL) {
 				return true, nil
 			}
 		}
@@ -175,15 +176,33 @@ func verbMatches(rule *rbacv1.PolicyRule, requestedVerb string) bool {
 }
 
 // nonResourceURLMatches returns true if the requested URL matches a policy the rule
-func nonResourceURLMatches(rule *rbacv1.PolicyRule, requestedURL string) bool {
+func nonResourceURLMatches(rule *rbacv1.PolicyRule, requestedURL *url.URL) bool {
 	for _, ruleURL := range rule.NonResourceURLs {
 		if ruleURL == rbacv1.NonResourceAll {
+			// any (*) resource matches immediatelly
 			return true
-		}
-		if authorization.PathMatches(requestedURL, ruleURL) {
-			return true
+		} else if len(ruleURL) > 0 {
+			// determine match type depending on the first rune:
+
+			if ruleURL[0] == '~' { // regular expression match against the full url requested
+				fullURLWithoutQuery := requestedURL.Scheme + "://" + requestedURL.Host + requestedURL.Path
+				if authorization.URLMatchesRegexp(fullURLWithoutQuery, ruleURL[1:]) {
+					return true // return only if it matched
+				}
+			} else if ruleURL[0] == '/' { // path-only prefix match with optional wildcards (backward-compatible)
+				if authorization.URLMatchesWildcardPattern(requestedURL.Path, ruleURL) {
+					return true // return only if it matched
+				}
+			} else { // full url path-only prefix match with optional wildcards
+				fullURLWithoutQuery := requestedURL.Scheme + "://" + requestedURL.Host + requestedURL.Path
+				if authorization.URLMatchesWildcardPattern(fullURLWithoutQuery, ruleURL) {
+					return true // return only if it matched
+				}
+			}
 		}
 	}
+
+	// no rule matched
 	return false
 }
 
