@@ -51,13 +51,15 @@ type Config struct {
 	Domains                 CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
 	LifetimeString          int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
 	Path                    string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
-	SecretString            string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
+	SecretString            string               `long:"secret" env:"SECRET" description:"Secret used for signing the cookie (required)" json:"-"`
 	Whitelist               CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
 	EnableImpersonation     bool                 `long:"enable-impersonation" env:"ENABLE_IMPERSONATION" description:"Indicates that impersonation headers should be set on successful auth"`
+	ForwardTokenHeaderName  string               `long:"forward-token-header-name" env:"FORWARD_TOKEN_HEADER_NAME" description:"Header name to forward the raw ID token in (won't forward token if empty)"`
+	ForwardTokenPrefix      string               `long:"forward-token-prefix" env:"FORWARD_TOKEN_PREFIX" default:"Bearer " description:"Prefix string to add before the forwarded ID token"`
 	ServiceAccountTokenPath string               `long:"service-account-token-path" env:"SERVICE_ACCOUNT_TOKEN_PATH" default:"/var/run/secrets/kubernetes.io/serviceaccount/token" description:"When impersonation is enabled, this token is passed via the Authorization header to the ingress. The user associated with the token must have impersonation privileges."`
 	Rules                   map[string]*Rule     `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
 	GroupClaimPrefix        string               `long:"group-claim-prefix" env:"GROUP_CLAIM_PREFIX" default:"oidc:" description:"prefix oidc group claims with this value"`
-	SessionKey              string               `long:"session-key" env:"SESSION_KEY" description:"A session key used to encrypt browser sessions"`
+	EncryptionKeyString     string               `long:"encryption-key" env:"ENCRYPTION_KEY" description:"Encryption key used to encrypt the cookie (required)" json:"-"`
 	GroupsAttributeName     string               `long:"groups-attribute-name" env:"GROUPS_ATTRIBUTE_NAME" default:"groups" description:"Map the correct attribute that contain the user groups"`
 
 	// RBAC
@@ -73,23 +75,23 @@ type Config struct {
 	// Filled during transformations
 	OIDCContext         context.Context
 	OIDCProvider        *oidc.Provider
-	Secret              []byte `json:"-"`
 	Lifetime            time.Duration
 	ServiceAccountToken string
 }
 
-func NewGlobalConfig(args []string) *Config {
+func NewGlobalConfig(args []string) (*Config, error) {
 	var err error
 	config, err = NewConfig(args)
-	if err != nil {
-		fmt.Printf("%+v\n", err)
-		os.Exit(1)
-	}
 
-	return config
+	return config, err
 }
 
+// NewConfig loads config from provided args or uses os.Args if nil
 func NewConfig(args []string) (*Config, error) {
+	if args == nil && len(os.Args) > 0 {
+		args = os.Args[1:]
+	}
+
 	c := Config{
 		Rules: map[string]*Rule{},
 	}
@@ -233,7 +235,7 @@ func (c *Config) Validate() {
 	if len(c.Path) > 0 && c.Path[0] != '/' {
 		c.Path = "/" + c.Path
 	}
-	c.Secret = []byte(c.SecretString)
+
 	c.Lifetime = time.Second * time.Duration(c.LifetimeString)
 
 	// get service account token
@@ -243,13 +245,6 @@ func (c *Config) Validate() {
 			log.Fatalf("impersonation is enabled, but failed to read %s : %v", c.ServiceAccountTokenPath, err)
 		}
 		c.ServiceAccountToken = strings.TrimSuffix(string(t), "\n")
-	}
-
-	// RBAC
-	if c.EnableRBAC && len(c.SessionKey) != 16 && len(c.SessionKey) != 24 && len(c.SessionKey) != 32 {
-		// Gorilla sessions require encryption keys of specific length
-		// https://www.gorillatoolkit.org/pkg/sessions#NewCookieStore
-		log.Fatal("\"session-key\" must be 16, 24 or 32 bytes long to select AES-128, AES-192, or AES-256 modes")
 	}
 }
 
@@ -270,11 +265,13 @@ func (c Config) String() string {
 	return string(jsonConf)
 }
 
+// Rule specifies an action for the rule
 type Rule struct {
 	Action string
 	Rule   string
 }
 
+// NewRule creates a new Rule instance
 func NewRule() *Rule {
 	return &Rule{
 		Action: "auth",
@@ -287,6 +284,7 @@ func (r *Rule) FormattedRule() string {
 	return strings.ReplaceAll(r.Rule, "Host(", "HostRegexp(")
 }
 
+// Validate validates the rule
 func (r *Rule) Validate() {
 	if r.Action != "auth" && r.Action != "allow" {
 		log.Fatal("invalid rule action, must be \"auth\" or \"allow\"")
@@ -295,13 +293,16 @@ func (r *Rule) Validate() {
 
 // Legacy support for comma separated lists
 
+// CommaSeparatedList flag value
 type CommaSeparatedList []string
 
+// UnmarshalFlag unmarshals a comma-separated list from the flag value
 func (c *CommaSeparatedList) UnmarshalFlag(value string) error {
 	*c = append(*c, strings.Split(value, ",")...)
 	return nil
 }
 
+// MarshalFlag marshals the comma-separated list to the flag value
 func (c *CommaSeparatedList) MarshalFlag() (string, error) {
 	return strings.Join(*c, ","), nil
 }

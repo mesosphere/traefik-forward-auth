@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"fmt"
 
 	"github.com/gorilla/sessions"
 	logger "github.com/mesosphere/traefik-forward-auth/internal/log"
@@ -20,7 +21,11 @@ import (
 // Main
 func main() {
 	// Parse options
-	config := configuration.NewGlobalConfig(os.Args[1:])
+	config, err := configuration.NewGlobalConfig(os.Args[1:])
+	if err != nil {
+		fmt.Printf("%+v\n", err)
+		os.Exit(1)
+	}
 
 	// Setup logger
 	log := logger.NewDefaultLogger(config.LogLevel, config.LogFormat)
@@ -47,7 +52,9 @@ func main() {
 	var userInfoStore v1alpha1.UserInfoInterface
 	if !config.EnableInClusterStorage {
 		// Prepare cookie session store (first key is for auth, the second one for encryption)
-		cookieStore := sessions.NewCookieStore(config.Secret, []byte(config.SessionKey))
+		hashKey := []byte(config.SecretString)
+		blockKey := []byte(config.EncryptionKeyString)
+		cookieStore := sessions.NewCookieStore(hashKey, blockKey)
 		cookieStore.Options.MaxAge = int(config.Lifetime / time.Second)
 		cookieStore.Options.HttpOnly = true
 		cookieStore.Options.Secure = !config.InsecureCookie
@@ -61,7 +68,7 @@ func main() {
 		userInfoStore = cluster.NewClusterStore(
 			clientset,
 			config.ClusterStoreNamespace,
-			string(config.Secret),
+			config.SecretString,
 			config.Lifetime,
 			time.Duration(config.ClusterStoreCacheTTL)*time.Second,
 			authenticator)

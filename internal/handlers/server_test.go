@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +20,20 @@ import (
 	intlog "github.com/mesosphere/traefik-forward-auth/internal/log"
 )
 
-// TODO:
+var (
+	testAuthKey1 = "4Zhbg4n22r4I8Kdg1gHMzRWQpT7TOArD"
+	testAuthKey2 = "HhaAG845dg9b16xKk8yiX+XoBhEAeHnQ"
+	testEncKey1  = "8jAnK6NGuzEuH3y13V+5Bm2jgp5bv8ku"
+	testEncKey2  = "FmvAqxzYy9ru0WaSU6SkLHP1ScoSVF/t"
+)
+
+func newTestConfig(authKey, encKey string) *configuration.Config {
+	c, _ := configuration.NewConfig([]string{})
+	c.SecretString = authKey
+	c.EncryptionKeyString = encKey
+
+	return c
+}
 
 /**
  * Setup
@@ -80,29 +92,30 @@ func (f *fakeUserInfoStore) Save(r *http.Request, w http.ResponseWriter, info *v
 
 func TestServerAuthHandlerInvalid(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.AuthHost = "dex.example.com"
 	config.Lifetime = time.Minute * time.Duration(config.LifetimeString)
 	a := authentication.NewAuthenticator(config)
 	// Should redirect vanilla request to login url
-	req := newDefaultHttpRequest("/foo")
+	req := newDefaultHTTPRequest("/foo")
 	res, _ := doHttpRequest(req, nil, config)
 	assert.Equal(307, res.StatusCode, "vanilla request should be redirected")
 
 	// Should catch invalid cookie
-	req = newDefaultHttpRequest("/foo")
-	c := a.MakeIDCookie(req, "test@example.com")
-	parts := strings.Split(c.Value, "|")
-	c.Value = fmt.Sprintf("bad|%s|%s", parts[1], parts[2])
+	req = newDefaultHTTPRequest("/foo")
+	// NOTE(jkoelker) `notAuthenticated` will redirect if it thinks the request is from a browser
+	req.Header.Set("Accept", "application/json")
+	c := a.MakeIDCookie(req, "test@example.com", "")
+	config = newTestConfig(testAuthKey2, testEncKey2) // new auth & encryption key!
 
 	config.AuthHost = ""
-	config.OIDCProvider = &oidc.Provider{}
 	res, _ = doHttpRequest(req, c, config)
-	assert.Equal(302, res.StatusCode, "invalid cookie should redirect")
+	assert.Equal(401, res.StatusCode, "invalid cookie should not be authorised")
 
 	// Should validate email
-	req = newDefaultHttpRequest("/foo")
-	c = a.MakeIDCookie(req, "test@example.com")
+	req = newDefaultHTTPRequest("/foo")
+	a = authentication.NewAuthenticator(config)
+	c = a.MakeIDCookie(req, "test@example.com", "")
 	config.Domains = []string{"test.com"}
 
 	res, _ = doHttpRequest(req, c, config)
@@ -111,15 +124,15 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 
 func TestServerAuthHandlerExpired(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.Lifetime = time.Second * time.Duration(-1)
 	config.Domains = []string{"test.com"}
 	config.AuthHost = "potato.example.com"
 	a := authentication.NewAuthenticator(config)
 
 	// Should redirect expired cookie
-	req := newDefaultHttpRequest("/foo")
-	c := a.MakeIDCookie(req, "test@example.com")
+	req := newDefaultHTTPRequest("/foo")
+	c := a.MakeIDCookie(req, "test@example.com", "")
 	res, _ := doHttpRequest(req, c, config)
 	assert.Equal(307, res.StatusCode, "request with expired cookie should be redirected")
 
@@ -132,13 +145,13 @@ func TestServerAuthHandlerExpired(t *testing.T) {
 
 func TestServerAuthHandlerValid(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.Lifetime = time.Minute * time.Duration(config.LifetimeString)
 	a := authentication.NewAuthenticator(config)
 
 	// Should allow valid request email
-	req := newDefaultHttpRequest("/foo")
-	c := a.MakeIDCookie(req, "test@example.com")
+	req := newDefaultHTTPRequest("/foo")
+	c := a.MakeIDCookie(req, "test@example.com", "")
 
 	config.Domains = []string{}
 
@@ -154,7 +167,7 @@ func TestServerAuthHandlerValid(t *testing.T) {
 // TODO: OIDC exchanges need to be mocked for AuthCallback testing
 //func TestServerAuthCallback(t *testing.T) {
 //	assert := assert.New(t)
-//	config, _ = NewConfig([]string{})
+//	config = newTestConfig(testAuthKey1, testEncKey1)
 //	config.AuthHost = "potato.example.com"
 //
 //	// Setup token server
@@ -168,18 +181,18 @@ func TestServerAuthHandlerValid(t *testing.T) {
 //	defer userServer.Close()
 //
 //	// Should pass auth response request to callback
-//	req := newDefaultHttpRequest("/_oauth")
+//	req := newDefaultHTTPRequest("/_oauth")
 //	res, _ := doHttpRequest(req, nil)
 //	assert.Equal(401, res.StatusCode, "auth callback without cookie shouldn't be authorised")
 //
 //	// Should catch invalid csrf cookie
-//	req = newDefaultHttpRequest("/_oauth?state=12345678901234567890123456789012:http://redirect")
+//	req = newDefaultHTTPRequest("/_oauth?state=12345678901234567890123456789012:http://redirect")
 //	c := MakeCSRFCookie(req, "nononononononononononononononono")
 //	res, _ = doHttpRequest(req, c)
 //	assert.Equal(401, res.StatusCode, "auth callback with invalid cookie shouldn't be authorised")
 //
 //	// Should redirect valid request
-//	req = newDefaultHttpRequest("/_oauth?state=12345678901234567890123456789012:http://redirect")
+//	req = newDefaultHTTPRequest("/_oauth?state=12345678901234567890123456789012:http://redirect")
 //	c = MakeCSRFCookie(req, "12345678901234567890123456789012")
 //	res, _ = doHttpRequest(req, c)
 //	assert.Equal(307, res.StatusCode, "valid auth callback should be allowed")
@@ -192,22 +205,22 @@ func TestServerAuthHandlerValid(t *testing.T) {
 
 func TestServerDefaultAction(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.AuthHost = "potato.example.com"
-	req := newDefaultHttpRequest("/random")
+	req := newDefaultHTTPRequest("/random")
 	res, _ := doHttpRequest(req, nil, config)
 	assert.Equal(307, res.StatusCode, "request should require auth with auth default handler")
 
 	config.DefaultAction = "allow"
 	config.AuthHost = ""
-	req = newDefaultHttpRequest("/random")
+	req = newDefaultHTTPRequest("/random")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request should be allowed with default handler")
 }
 
 func TestServerRouteHeaders(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.AuthHost = "potato.example.com"
 	config.Rules = map[string]*configuration.Rule{
 		"1": {
@@ -221,20 +234,20 @@ func TestServerRouteHeaders(t *testing.T) {
 	}
 
 	// Should block any request
-	req := newDefaultHttpRequest("/random")
+	req := newDefaultHTTPRequest("/random")
 	req.Header.Add("X-Random", "hello")
 	res, _ := doHttpRequest(req, nil, config)
 	assert.Equal(307, res.StatusCode, "request not matching any rule should require auth")
 
 	config.AuthHost = ""
 	// Should allow matching
-	req = newDefaultHttpRequest("/api")
+	req = newDefaultHTTPRequest("/api")
 	req.Header.Add("X-Test", "test123")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 
 	// Should allow matching
-	req = newDefaultHttpRequest("/api")
+	req = newDefaultHTTPRequest("/api")
 	req.Header.Add("X-Test", "test789")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
@@ -242,7 +255,7 @@ func TestServerRouteHeaders(t *testing.T) {
 
 func TestServerRouteHost(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
@@ -257,25 +270,25 @@ func TestServerRouteHost(t *testing.T) {
 	config.AuthHost = "potato.example.com"
 
 	// Should block any request
-	req := newHttpRequest("GET", "https://example.com/", "/")
+	req := newHTTPRequest("GET", "https://example.com/", "/")
 	res, _ := doHttpRequest(req, nil, config)
 	assert.Equal(307, res.StatusCode, "request not matching any rule should require auth")
 
 	config.AuthHost = ""
 	// Should allow matching request
-	req = newHttpRequest("GET", "https://api.example.com/", "/")
+	req = newHTTPRequest("GET", "https://api.example.com/", "/")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 
 	// Should allow matching request
-	req = newHttpRequest("GET", "https://sub8.example.com/", "/")
+	req = newHTTPRequest("GET", "https://sub8.example.com/", "/")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 }
 
 func TestServerRouteMethod(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
@@ -285,20 +298,20 @@ func TestServerRouteMethod(t *testing.T) {
 
 	config.AuthHost = "potato.example.com"
 	// Should block any request
-	req := newHttpRequest("GET", "https://example.com/", "/")
+	req := newHTTPRequest("GET", "https://example.com/", "/")
 	res, _ := doHttpRequest(req, nil, config)
 	assert.Equal(307, res.StatusCode, "request not matching any rule should require auth")
 
 	config.AuthHost = ""
 	// Should allow matching request
-	req = newHttpRequest("PUT", "https://example.com/", "/")
+	req = newHTTPRequest("PUT", "https://example.com/", "/")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 }
 
 func TestServerRoutePath(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
@@ -312,29 +325,29 @@ func TestServerRoutePath(t *testing.T) {
 
 	config.AuthHost = "potato.example.com"
 	// Should block any request
-	req := newDefaultHttpRequest("/random")
+	req := newDefaultHTTPRequest("/random")
 	res, _ := doHttpRequest(req, nil, config)
 	assert.Equal(307, res.StatusCode, "request not matching any rule should require auth")
 
 	config.AuthHost = ""
 	// Should allow /api request
-	req = newDefaultHttpRequest("/api")
+	req = newDefaultHTTPRequest("/api")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 
 	// Should allow /private request
-	req = newDefaultHttpRequest("/private")
+	req = newDefaultHTTPRequest("/private")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 
-	req = newDefaultHttpRequest("/private/path")
+	req = newDefaultHTTPRequest("/private/path")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 }
 
 func TestServerRouteQuery(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
@@ -344,20 +357,20 @@ func TestServerRouteQuery(t *testing.T) {
 
 	config.AuthHost = "potato.example.com"
 	// Should block any request
-	req := newHttpRequest("GET", "https://example.com/", "/?q=no")
+	req := newHTTPRequest("GET", "https://example.com/", "/?q=no")
 	res, _ := doHttpRequest(req, nil, config)
 	assert.Equal(307, res.StatusCode, "request not matching any rule should require auth")
 
 	config.AuthHost = ""
 	// Should allow matching request
-	req = newHttpRequest("GET", "https://api.example.com/", "/?q=test123")
+	req = newHTTPRequest("GET", "https://api.example.com/", "/?q=test123")
 	res, _ = doHttpRequest(req, nil, config)
 	assert.Equal(200, res.StatusCode, "request matching allow rule should be allowed")
 }
 
 func TestAuthzDisabled(t *testing.T) {
 	assert := assert.New(t)
-	config, _ := configuration.NewConfig([]string{})
+	config := newTestConfig(testAuthKey1, testEncKey1)
 
 	config.EnableRBAC = true
 	config.AuthZPassThrough = []string{"/authz/passthru", "/authz/passthru/*"}
@@ -435,11 +448,8 @@ func doHttpRequest(r *http.Request, c *http.Cookie, config *configuration.Config
 	return res, string(body)
 }
 
-func newDefaultHttpRequest(uri string) *http.Request {
-	return newHttpRequest("", "http://example.com/", uri)
-}
-
-func newHttpRequest(method, dest, uri string) *http.Request {
+// newHTTPRequest creates a mocked HTTP request from Traefik (with X-Forwarded-* headers)
+func newHTTPRequest(method, dest, uri string) *http.Request {
 	r := httptest.NewRequest("", "http://should-use-x-forwarded.com", nil)
 	p, _ := url.Parse(dest)
 	r.Header.Add("X-Forwarded-Method", method)
@@ -448,6 +458,11 @@ func newHttpRequest(method, dest, uri string) *http.Request {
 	r.Header.Add("X-Forwarded-Proto", "https")
 	r.Header.Add("Accept", "*/*")
 	return r
+}
+
+// newDefaultHTTPRequest creates a mocked request from Traefik for http://example.com with no HTTP method
+func newDefaultHTTPRequest(uri string) *http.Request {
+	return newHTTPRequest("", "http://example.com/", uri)
 }
 
 func qsDiff(t *testing.T, one, two url.Values) []string {

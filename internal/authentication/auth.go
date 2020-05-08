@@ -1,67 +1,51 @@
 package authentication
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/securecookie"
 
 	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
 )
 
 type Authenticator struct {
-	config *configuration.Config
+	config       *configuration.Config
+	secureCookie *securecookie.SecureCookie
 }
 
 func NewAuthenticator(config *configuration.Config) *Authenticator {
-	return &Authenticator{config}
+	cookieMaxAge := int(config.Lifetime / time.Second)
+	hashKey := []byte(config.SecretString)
+	blockKey := []byte(config.EncryptionKeyString)
+
+	return &Authenticator{
+		config:       config,
+		secureCookie: securecookie.New(hashKey, blockKey).MaxAge(cookieMaxAge),
+	}
+}
+
+type ID struct {
+	Email string
+	Token string
 }
 
 // Request Validation
 
 // ValidateCookie validates the ID cookie in the request
 // IDCookie = hash(secret, cookie domain, email, expires)|expires|email|group
-func (a *Authenticator) ValidateCookie(r *http.Request, c *http.Cookie) (string, error) {
-	parts := strings.Split(c.Value, "|")
+func (a *Authenticator) ValidateCookie(r *http.Request, c *http.Cookie) (*ID, error) {
+	var data ID
 
-	if len(parts) != 3 {
-		return "", errors.New("invalid cookie format")
+	if err := a.secureCookie.Decode(a.config.CookieName, c.Value, &data); err != nil {
+		return nil, err
 	}
 
-	mac, err := base64.URLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return "", errors.New("unable to decode cookie mac")
-	}
-
-	expectedSignature := a.cookieSignature(r, parts[2], parts[1])
-	expected, err := base64.URLEncoding.DecodeString(expectedSignature)
-	if err != nil {
-		return "", errors.New("unable to generate mac")
-	}
-
-	// Valid token?
-	if !hmac.Equal(mac, expected) {
-		return "", errors.New("invalid cookie mac")
-	}
-
-	expires, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return "", errors.New("unable to parse cookie expiry")
-	}
-
-	// Has it expired?
-	if time.Unix(expires, 0).Before(time.Now()) {
-		return "", errors.New("cookie has expired")
-	}
-
-	// Looks valid
-	return parts[2], nil
+	return &data, nil
 }
 
 // ValidateEmail validates that the provided email ends with one of the configured Domains or is part of the configured Whitelist.
@@ -117,14 +101,21 @@ func (a *Authenticator) useAuthDomain(r *http.Request) (bool, string) {
 // Cookie methods
 
 // MakeIDCookie creates an auth cookie
-func (a *Authenticator) MakeIDCookie(r *http.Request, email string) *http.Cookie {
+func (a *Authenticator) MakeIDCookie(r *http.Request, email string, token string) *http.Cookie {
 	expires := a.cookieExpiry()
-	mac := a.cookieSignature(r, email, fmt.Sprintf("%d", expires.Unix()))
-	value := fmt.Sprintf("%s|%d|%s", mac, expires.Unix(), email)
+	data := &ID{
+		Email: email,
+		Token: token,
+	}
+
+	encoded, err := a.secureCookie.Encode(a.config.CookieName, data)
+	if err != nil {
+		return nil
+	}
 
 	return &http.Cookie{
 		Name:     a.config.CookieName,
-		Value:    value,
+		Value:    encoded,
 		Path:     "/",
 		Domain:   a.GetCookieDomain(r),
 		HttpOnly: true,
@@ -247,15 +238,6 @@ func (a *Authenticator) matchCookieDomains(domain string) (bool, string) {
 		}
 	}
 	return false, p[0]
-}
-
-// cookieSignature creates a cookie hmac
-func (a *Authenticator) cookieSignature(r *http.Request, email, expires string) string {
-	hash := hmac.New(sha256.New, a.config.Secret)
-	hash.Write([]byte(a.GetCookieDomain(r)))
-	hash.Write([]byte(email))
-	hash.Write([]byte(expires))
-	return base64.URLEncoding.EncodeToString(hash.Sum(nil))
 }
 
 // Get cookie expirary
