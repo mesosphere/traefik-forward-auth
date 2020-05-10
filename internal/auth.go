@@ -21,8 +21,8 @@ type sessionCookie struct {
 // Request Validation
 
 // validateSessionCookie validates the session cookie in the request and returns the decoded session data
-func validateSessionCookie(r *http.Request, c *http.Cookie) (*sessionCookie, error) {
-	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(cookieMaxAge())
+func validateSessionCookie(r *http.Request, c *http.Cookie, config *Config) (*sessionCookie, error) {
+	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(config.CookieMaxAge())
 
 	var data sessionCookie
 
@@ -34,25 +34,28 @@ func validateSessionCookie(r *http.Request, c *http.Cookie) (*sessionCookie, err
 	return &data, err
 }
 
-// validateEmail validates that the provided email ends with one of the configured Domains or is part of the configured Whitelist.
-// Also returns true if there is no Whitelist and no Domains configured.
-func validateEmail(email string) bool {
-	if len(config.Whitelist) > 0 || len(config.Domains) > 0 {
-		for _, whitelist := range config.Whitelist {
+// validateEmail validates that the provided email is valid which is true in any of these:
+// - whitelist and no domainsWhitelist are empty
+// - email part after '@' matches one of the domain listed in the domainsWhitelist
+// - email is listed in the emailWhitelist
+func validateEmail(email string, emailWhitelist, domainWhitelist []string) bool {
+	if len(emailWhitelist) > 0 || len(domainWhitelist) > 0 {
+		for _, whitelist := range emailWhitelist {
 			if email == whitelist {
 				return true
 			}
 		}
 
 		parts := strings.Split(email, "@")
-		for _, domain := range config.Domains {
+		for _, domain := range domainWhitelist {
 			if len(parts) >= 2 && domain == parts[1] {
 				return true
 			}
 		}
 		return false
 	}
-	return true
+
+	return true // both whitelists empty
 }
 
 // Utility methods
@@ -82,28 +85,31 @@ func getRequestURL(r *http.Request) string {
 }
 
 // composeRedirectURI generates oauth redirect uri to return to from the OAuth2 provider
-func composeRedirectURI(r *http.Request) string {
-	if use, _ := useAuthDomain(r); use {
+// Either as request-scheme://request-host/<path>
+// Or, if auth domain configured and usable: request-scheme://<authHost>/<path>
+// Cookiedomains are consulted to decide whether to use auth domain
+func composeRedirectURI(r *http.Request, authHost, path string, cookieDomains []CookieDomain) string {
+	if use, _ := useAuthDomain(r, authHost, cookieDomains); use {
 		scheme := r.Header.Get("X-Forwarded-Proto")
-		return fmt.Sprintf("%s://%s%s", scheme, config.AuthHost, config.Path)
+		return fmt.Sprintf("%s://%s%s", scheme, authHost, path)
 	}
 
-	return fmt.Sprintf("%s%s", getRequestSchemeHost(r), config.Path)
+	return fmt.Sprintf("%s%s", getRequestSchemeHost(r), path)
 }
 
 // useAuthDomain decides whether the host of the forwarded request
-// matches the configured AuthHost and whether we can configure cookies for the AuthHost
+// matches the configured authHost and whether we can configure cookies for the AuthHost
 // If it does, the function returns true and the top-level domain from the config we can use
-func useAuthDomain(r *http.Request) (bool, string) {
-	if config.AuthHost == "" {
+func useAuthDomain(r *http.Request, authHost string, cookieDomains []CookieDomain) (bool, string) {
+	if authHost == "" {
 		return false, ""
 	}
 
 	// Does the request match a given cookie domain?
-	reqMatch, reqHost := matchCookieDomains(r.Header.Get("X-Forwarded-Host"))
+	reqMatch, reqHost := matchCookieDomains(r.Header.Get("X-Forwarded-Host"), cookieDomains)
 
 	// Do any of the auth hosts match a cookie domain?
-	authMatch, authHost := matchCookieDomains(config.AuthHost)
+	authMatch, authHost := matchCookieDomains(authHost, cookieDomains)
 
 	// We need both to match the same domain
 	return reqMatch && authMatch && reqHost == authHost, reqHost
@@ -112,8 +118,8 @@ func useAuthDomain(r *http.Request) (bool, string) {
 // Cookie methods
 
 // makeSessionCookie creates an authenticated and encrypted cookie holding session data
-func makeSessionCookie(r *http.Request, data sessionCookie) *http.Cookie {
-	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(cookieMaxAge())
+func makeSessionCookie(r *http.Request, config *Config, data sessionCookie) *http.Cookie {
+	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(config.CookieMaxAge())
 
 	encoded, err := sc.Encode(config.CookieName, data)
 	if err != nil {
@@ -124,48 +130,46 @@ func makeSessionCookie(r *http.Request, data sessionCookie) *http.Cookie {
 		Name:     config.CookieName,
 		Value:    encoded,
 		Path:     "/",
-		Domain:   cookieDomain(r),
+		Domain:   cookieDomain(r, config.CookieDomains),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
-		Expires:  cookieExpiry(),
+		Expires:  config.CookieExpiry(),
 	}
 }
 
 // makeNameCookie creates a name cookie
-func makeNameCookie(r *http.Request, name string) *http.Cookie {
-	expires := cookieExpiry()
-
+func makeNameCookie(r *http.Request, config *Config, name string) *http.Cookie {
 	return &http.Cookie{
 		Name:     config.UserCookieName,
 		Value:    name,
 		Path:     "/",
-		Domain:   cookieDomain(r),
+		Domain:   cookieDomain(r, config.CookieDomains),
 		HttpOnly: false,
 		Secure:   false,
-		Expires:  expires,
+		Expires:  config.CookieExpiry(),
 	}
 }
 
 // makeCSRFCookie creates a CSRF cookie (used during login only)
-func makeCSRFCookie(r *http.Request, nonce string) *http.Cookie {
+func makeCSRFCookie(r *http.Request, config *Config, nonce string) *http.Cookie {
 	return &http.Cookie{
 		Name:     config.CSRFCookieName,
 		Value:    nonce,
 		Path:     "/",
-		Domain:   csrfCookieDomain(r),
+		Domain:   csrfCookieDomain(r, config.AuthHost, config.CookieDomains),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
-		Expires:  cookieExpiry(),
+		Expires:  config.CookieExpiry(),
 	}
 }
 
 // clearCSRFCookie clears the csrf cookie
-func clearCSRFCookie(r *http.Request) *http.Cookie {
+func clearCSRFCookie(r *http.Request, config *Config) *http.Cookie {
 	return &http.Cookie{
 		Name:     config.CSRFCookieName,
 		Value:    "",
 		Path:     "/",
-		Domain:   csrfCookieDomain(r),
+		Domain:   csrfCookieDomain(r, config.AuthHost, config.CookieDomains),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
 		Expires:  time.Now().Local().Add(time.Hour * -1),
@@ -206,18 +210,18 @@ func generateNonce() (string, error) {
 }
 
 // Cookie domain
-func cookieDomain(r *http.Request) string {
+func cookieDomain(r *http.Request, cookieDomains []CookieDomain) string {
 	host := r.Header.Get("X-Forwarded-Host")
 
 	// Check if any of the given cookie domains matches
-	_, domain := matchCookieDomains(host)
+	_, domain := matchCookieDomains(host, cookieDomains)
 	return domain
 }
 
 // Cookie domain
-func csrfCookieDomain(r *http.Request) string {
+func csrfCookieDomain(r *http.Request, authHost string, cookieDomains []CookieDomain) string {
 	var host string
-	if use, domain := useAuthDomain(r); use {
+	if use, domain := useAuthDomain(r, authHost, cookieDomains); use {
 		host = domain
 	} else {
 		host = r.Header.Get("X-Forwarded-Host")
@@ -232,26 +236,17 @@ func csrfCookieDomain(r *http.Request) string {
 // and returns the domain from the list it matched with.
 // The match is either the direct equality of domain names or the input subdomain (e.g. "a.test.com") belongs under a configured top domain ("test.com").
 // If the domain does not match CookieDomains, false is returned with the input domain as the second return value.
-func matchCookieDomains(domain string) (bool, string) {
+func matchCookieDomains(domain string, cookieDomains []CookieDomain) (bool, string) {
 	// Remove port
 	p := strings.Split(domain, ":")
 
-	for _, d := range config.CookieDomains {
+	for _, d := range cookieDomains {
 		if d.Match(p[0]) {
 			return true, d.Domain
 		}
 	}
 
 	return false, p[0]
-}
-
-// cookieExpiry returns the expiration time, Lifetime duration since now
-func cookieExpiry() time.Time {
-	return time.Now().Local().Add(config.Lifetime)
-}
-
-func cookieMaxAge() int {
-	return int(config.Lifetime / time.Second)
 }
 
 // Cookie Domain

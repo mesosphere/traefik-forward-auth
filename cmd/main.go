@@ -15,7 +15,7 @@ import (
 // Main
 func main() {
 	// Parse options
-	config, err := internal.NewGlobalConfig()
+	config, err := internal.NewConfig(nil)
 	if err != nil {
 		fmt.Printf("%+v\n", err)
 		os.Exit(1)
@@ -46,7 +46,7 @@ func main() {
 	}
 
 	// Build server
-	server := internal.NewServer(clientset)
+	server := internal.NewServer(config, clientset)
 
 	// Attach router to default server
 	http.HandleFunc("/", server.RootHandler)

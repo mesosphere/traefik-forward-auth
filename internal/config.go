@@ -22,9 +22,7 @@ import (
 )
 
 var (
-	// TODO(jr): Get rid of the global config object
-	config *Config
-	log    logrus.FieldLogger
+	log logrus.FieldLogger
 )
 
 // Config holds app configuration
@@ -69,15 +67,6 @@ type Config struct {
 	OIDCProvider        *oidc.Provider
 	Lifetime            time.Duration
 	ServiceAccountToken string
-}
-
-// NewGlobalConfig loads the config from os.Args and sets the global variable "config" FIXME: get rid of global config
-func NewGlobalConfig() (*Config, error) {
-	var err error
-
-	config, err = NewConfig(os.Args[1:])
-
-	return config, err
 }
 
 // NewConfig loads config from provided args or uses os.Args if nil
@@ -249,6 +238,16 @@ func (c *Config) LoadOIDCProviderConfiguration() error {
 	}
 	c.OIDCProvider = provider
 	return nil
+}
+
+// CookieExpiry returns the cookie expiration time (Now() + configured Lifetime)
+func (c Config) CookieExpiry() time.Time {
+	return time.Now().Local().Add(c.Lifetime)
+}
+
+// CookieMaxAge returns number of seconds to cookie expiration (configured Lifetime converted to seconds)
+func (c Config) CookieMaxAge() int {
+	return int(c.Lifetime / time.Second)
 }
 
 func (c Config) String() string {
