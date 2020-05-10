@@ -19,7 +19,7 @@ type Authenticator struct {
 }
 
 func NewAuthenticator(config *configuration.Config) *Authenticator {
-	cookieMaxAge := int(config.Lifetime / time.Second)
+	cookieMaxAge := config.CookieMaxAge()
 	hashKey := []byte(config.SecretString)
 	blockKey := []byte(config.EncryptionKeyString)
 
@@ -102,7 +102,7 @@ func (a *Authenticator) useAuthDomain(r *http.Request) (bool, string) {
 
 // MakeIDCookie creates an auth cookie
 func (a *Authenticator) MakeIDCookie(r *http.Request, email string, token string) *http.Cookie {
-	expires := a.cookieExpiry()
+	expires := a.config.CookieExpiry()
 	data := &ID{
 		Email: email,
 		Token: token,
@@ -126,7 +126,7 @@ func (a *Authenticator) MakeIDCookie(r *http.Request, email string, token string
 
 // MakeNameCookie creates a name cookie
 func (a *Authenticator) MakeNameCookie(r *http.Request, name string) *http.Cookie {
-	expires := a.cookieExpiry()
+	expires := a.config.CookieExpiry()
 
 	return &http.Cookie{
 		Name:     a.config.UserCookieName,
@@ -148,7 +148,7 @@ func (a *Authenticator) MakeCSRFCookie(r *http.Request, nonce string) *http.Cook
 		Domain:   a.csrfCookieDomain(r),
 		HttpOnly: true,
 		Secure:   !a.config.InsecureCookie,
-		Expires:  a.cookieExpiry(),
+		Expires:  a.config.CookieExpiry(),
 	}
 }
 
@@ -238,11 +238,6 @@ func (a *Authenticator) matchCookieDomains(domain string) (bool, string) {
 		}
 	}
 	return false, p[0]
-}
-
-// Get cookie expirary
-func (a *Authenticator) cookieExpiry() time.Time {
-	return time.Now().Local().Add(a.config.Lifetime)
 }
 
 // Utility methods

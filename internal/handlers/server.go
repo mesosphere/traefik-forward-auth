@@ -369,7 +369,6 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			logger.Errorf("failed to get groups claim from the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
 		}
 
-		logger.Printf("creating claims session with groups: %v", groups)
 		if err := s.userinfo.Save(r, w, &v1alpha1.UserInfo{
 			Username: name.(string),
 			Email:    email.(string),

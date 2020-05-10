@@ -1,27 +1,28 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/gorilla/sessions"
+	k8s "k8s.io/client-go/kubernetes"
+
 	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
 	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
 	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
 	"github.com/mesosphere/traefik-forward-auth/internal/handlers"
 	kubernetes "github.com/mesosphere/traefik-forward-auth/internal/kubernetes"
+	logger "github.com/mesosphere/traefik-forward-auth/internal/log"
 	"github.com/mesosphere/traefik-forward-auth/internal/storage"
 	"github.com/mesosphere/traefik-forward-auth/internal/storage/cluster"
-	"net/http"
-	"os"
-	"time"
-	"fmt"
-
-	"github.com/gorilla/sessions"
-	logger "github.com/mesosphere/traefik-forward-auth/internal/log"
-	k8s "k8s.io/client-go/kubernetes"
 )
 
 // Main
 func main() {
 	// Parse options
-	config, err := configuration.NewGlobalConfig(os.Args[1:])
+	config, err := configuration.NewConfig(os.Args[1:])
 	if err != nil {
 		fmt.Printf("%+v\n", err)
 		os.Exit(1)
