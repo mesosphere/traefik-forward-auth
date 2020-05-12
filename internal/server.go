@@ -21,6 +21,7 @@ import (
 const (
 	impersonateUserHeader  = "Impersonate-User"
 	impersonateGroupHeader = "Impersonate-Group"
+	forceReauthParamName   = "_force_reauth"
 )
 
 // Server implements the HTTP server handling forwardauth
@@ -120,6 +121,30 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		// Logging setup
 		logger := s.logger(r, rule, "Authenticate request")
 
+		// Has user requested re-authentication?
+		queryParams := r.URL.Query()
+		if queryParams.Get(forceReauthParamName) == "1" {
+			logger := s.logger(r, "default", "Handling re-auth requested by user")
+
+			// remove reauth param from TFA request (just in case it is used later in TFA)
+			queryParams.Del(forceReauthParamName)
+			r.URL.RawQuery = queryParams.Encode()
+
+			// remove reauth param from the forwarded URI header (which TFA uses currently)
+			uri := r.Header.Get("X-Forwarded-Uri")
+			u, err := url.Parse(uri)
+			if err == nil {
+				queryParams = u.Query()
+				queryParams.Del(forceReauthParamName)
+				u.RawQuery = queryParams.Encode()
+				r.Header.Set("X-Forwarded-Uri", u.String())
+			}
+
+			// do the reauth redirect with the original URL without reauth param
+			s.authRedirect(logger, w, r)
+			return
+		}
+
 		// Get auth cookie
 		c, err := r.Cookie(s.config.CookieName)
 		if err != nil {
@@ -178,8 +203,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 
 			if !authorized {
 				logger.Infof("user %s is not authorized to `%s` in %s", kubeUserInfo.GetName(), r.Method, targetURL)
-				//TODO:k3a: consider some kind of re-auth to recheck for new groups
-				http.Error(w, "Not Authorized", 401)
+				s.notAuthorized(logger, w, r)
 				return
 			}
 
@@ -375,6 +399,42 @@ func (s *Server) notAuthenticated(logger *logrus.Entry, w http.ResponseWriter, r
 	} else {
 		http.Error(w, errStr, 401)
 	}
+}
+
+func (s *Server) notAuthorized(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) {
+	msg := "Not Authorized"
+
+	htmlAccepted := false
+	acceptHeader := r.Header.Get("Accept")
+	acceptParts := strings.Split(acceptHeader, ",")
+	for i, acceptPart := range acceptParts {
+		format := strings.Trim(strings.SplitN(acceptPart, ";", 2)[0], " ")
+		if format == "text/html" || (i == 0 && format == "*/*") {
+			htmlAccepted = true
+			break
+		}
+	}
+
+	if htmlAccepted {
+		u, err := url.Parse(getRequestURL(r))
+		if err == nil {
+			// append reauth query parameter to the original request URL
+			q := u.Query()
+			q.Set(forceReauthParamName, "1")
+			u.RawQuery = q.Encode()
+
+			// construct more helpful HTML message
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(401)
+			fmt.Fprintf(w, `<h3>%s</h3>You may try to <a href="%s">re-authenticate</a> to refresh your group membership or ask the administrator to grant you access first.`,
+				msg, u.String())
+
+			return
+		}
+	}
+
+	// just return the generic error message
+	http.Error(w, msg, 401)
 }
 
 // authRedirect generates CSRF cookie and redirests to authentication provider to start the authentication flow.
