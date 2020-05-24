@@ -1,120 +1,115 @@
 package tfa
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/securecookie"
 )
+
+// sessionCookie is a structure holding session cookie data
+type sessionCookie struct {
+	EMail   string
+	Groups  []string
+	IDToken string
+}
 
 // Request Validation
 
-// Cookie = hash(secret, cookie domain, email, expires)|expires|email|groups
-func ValidateCookie(r *http.Request, c *http.Cookie) (string, error) {
-	parts := strings.Split(c.Value, "|")
+// validateSessionCookie validates the session cookie in the request and returns the decoded session data
+func validateSessionCookie(r *http.Request, c *http.Cookie, config *Config) (*sessionCookie, error) {
+	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(config.CookieMaxAge())
 
-	if len(parts) != 3 {
-		return "", errors.New("invalid cookie format")
-	}
+	var data sessionCookie
 
-	mac, err := base64.URLEncoding.DecodeString(parts[0])
+	err := sc.Decode(config.CookieName, c.Value, &data)
 	if err != nil {
-		return "", errors.New("unable to decode cookie mac")
+		return nil, err
 	}
 
-	expectedSignature := cookieSignature(r, parts[2], parts[1])
-	expected, err := base64.URLEncoding.DecodeString(expectedSignature)
-	if err != nil {
-		return "", errors.New("unable to generate mac")
-	}
-
-	// Valid token?
-	if !hmac.Equal(mac, expected) {
-		return "", errors.New("invalid cookie mac")
-	}
-
-	expires, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return "", errors.New("unable to parse cookie expiry")
-	}
-
-	// Has it expired?
-	if time.Unix(expires, 0).Before(time.Now()) {
-		return "", errors.New("cookie has expired")
-	}
-
-	// Looks valid
-	return parts[2], nil
+	return &data, err
 }
 
-// Validate email
-func ValidateEmail(email string) bool {
-	if len(config.Whitelist) > 0 || len(config.Domains) > 0 {
-		for _, whitelist := range config.Whitelist {
+// validateEmail validates that the provided email is valid which is true in any of these:
+// - whitelist and no domainsWhitelist are empty
+// - email part after '@' matches one of the domain listed in the domainsWhitelist
+// - email is listed in the emailWhitelist
+func validateEmail(email string, emailWhitelist, domainWhitelist []string) bool {
+	if len(emailWhitelist) > 0 || len(domainWhitelist) > 0 {
+		for _, whitelist := range emailWhitelist {
 			if email == whitelist {
 				return true
 			}
 		}
 
 		parts := strings.Split(email, "@")
-		for _, domain := range config.Domains {
+		for _, domain := range domainWhitelist {
 			if len(parts) >= 2 && domain == parts[1] {
 				return true
 			}
 		}
 		return false
 	}
-	return true
+
+	return true // both whitelists empty
 }
 
 // Utility methods
 
-// Get the redirect base
-func redirectBase(r *http.Request) string {
+// getRequestSchemeHost returns scheme://host part of the request
+// Example output: "https://domain.com"
+func getRequestSchemeHost(r *http.Request) string {
 	proto := r.Header.Get("X-Forwarded-Proto")
 	host := r.Header.Get("X-Forwarded-Host")
 
 	return fmt.Sprintf("%s://%s", proto, host)
 }
 
-func GetUriPath(r *http.Request) string {
+// getRequestURI returns the full request URI with query parameters.
+// The path includes the prefix (if stripPrefix middleware was used).
+// Example output: "/prefix/path?query=1"
+func getRequestURI(r *http.Request) string {
 	prefix := r.Header.Get("X-Forwarded-Prefix")
 	uri := r.Header.Get("X-Forwarded-Uri")
 	return fmt.Sprintf("%s/%s", strings.TrimRight(prefix, "/"), strings.TrimLeft(uri, "/"))
 }
 
-// // Return url
-func returnUrl(r *http.Request) string {
-	return fmt.Sprintf("%s%s", redirectBase(r), GetUriPath(r))
+// getRequestURL returns full requst URL scheme://host/uri with query params
+// Example output: "https://domain.com/prefix/path?query=1"
+func getRequestURL(r *http.Request) string {
+	return fmt.Sprintf("%s%s", getRequestSchemeHost(r), getRequestURI(r))
 }
 
-// Get oauth redirect uri
-func redirectUri(r *http.Request) string {
-	if use, _ := useAuthDomain(r); use {
-		proto := r.Header.Get("X-Forwarded-Proto")
-		return fmt.Sprintf("%s://%s%s", proto, config.AuthHost, config.Path)
+// composeRedirectURI generates oauth redirect uri to return to from the OAuth2 provider
+// Either as request-scheme://request-host/<path>
+// Or, if auth domain configured and usable: request-scheme://<authHost>/<path>
+// Cookiedomains are consulted to decide whether to use auth domain
+func composeRedirectURI(r *http.Request, authHost, path string, cookieDomains []CookieDomain) string {
+	if use, _ := useAuthDomain(r, authHost, cookieDomains); use {
+		scheme := r.Header.Get("X-Forwarded-Proto")
+		return fmt.Sprintf("%s://%s%s", scheme, authHost, path)
 	}
 
-	return fmt.Sprintf("%s%s", redirectBase(r), config.Path)
+	return fmt.Sprintf("%s%s", getRequestSchemeHost(r), path)
 }
 
-// Should we use auth host + what it is
-func useAuthDomain(r *http.Request) (bool, string) {
-	if config.AuthHost == "" {
+// useAuthDomain decides whether the host of the forwarded request
+// matches the configured authHost and whether we can configure cookies for the AuthHost
+// If it does, the function returns true and the top-level domain from the config we can use
+func useAuthDomain(r *http.Request, authHost string, cookieDomains []CookieDomain) (bool, string) {
+	if authHost == "" {
 		return false, ""
 	}
 
 	// Does the request match a given cookie domain?
-	reqMatch, reqHost := matchCookieDomains(r.Header.Get("X-Forwarded-Host"))
+	reqMatch, reqHost := matchCookieDomains(r.Header.Get("X-Forwarded-Host"), cookieDomains)
 
 	// Do any of the auth hosts match a cookie domain?
-	authMatch, authHost := matchCookieDomains(config.AuthHost)
+	authMatch, authHost := matchCookieDomains(authHost, cookieDomains)
 
 	// We need both to match the same domain
 	return reqMatch && authMatch && reqHost == authHost, reqHost
@@ -122,66 +117,67 @@ func useAuthDomain(r *http.Request) (bool, string) {
 
 // Cookie methods
 
-// Create an auth cookie
-func MakeIDCookie(r *http.Request, email string) *http.Cookie {
-	expires := cookieExpiry()
-	mac := cookieSignature(r, email, fmt.Sprintf("%d", expires.Unix()))
-	value := fmt.Sprintf("%s|%d|%s", mac, expires.Unix(), email)
+// makeSessionCookie creates an authenticated and encrypted cookie holding session data
+func makeSessionCookie(r *http.Request, config *Config, data sessionCookie) *http.Cookie {
+	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(config.CookieMaxAge())
+
+	encoded, err := sc.Encode(config.CookieName, data)
+	if err != nil {
+		return nil
+	}
 
 	return &http.Cookie{
 		Name:     config.CookieName,
-		Value:    value,
+		Value:    encoded,
 		Path:     "/",
-		Domain:   cookieDomain(r),
+		Domain:   cookieDomain(r, config.CookieDomains),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
-		Expires:  expires,
+		Expires:  config.CookieExpiry(),
 	}
 }
 
-// Create a name cookie
-func MakeNameCookie(r *http.Request, name string) *http.Cookie {
-	expires := cookieExpiry()
-
+// makeNameCookie creates a name cookie
+func makeNameCookie(r *http.Request, config *Config, name string) *http.Cookie {
 	return &http.Cookie{
 		Name:     config.UserCookieName,
 		Value:    name,
 		Path:     "/",
-		Domain:   cookieDomain(r),
+		Domain:   cookieDomain(r, config.CookieDomains),
 		HttpOnly: false,
 		Secure:   false,
-		Expires:  expires,
+		Expires:  config.CookieExpiry(),
 	}
 }
 
-// Make a CSRF cookie (used during login only)
-func MakeCSRFCookie(r *http.Request, nonce string) *http.Cookie {
+// makeCSRFCookie creates a CSRF cookie (used during login only)
+func makeCSRFCookie(r *http.Request, config *Config, nonce string) *http.Cookie {
 	return &http.Cookie{
 		Name:     config.CSRFCookieName,
 		Value:    nonce,
 		Path:     "/",
-		Domain:   csrfCookieDomain(r),
+		Domain:   csrfCookieDomain(r, config.AuthHost, config.CookieDomains),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
-		Expires:  cookieExpiry(),
+		Expires:  config.CookieExpiry(),
 	}
 }
 
-// Create a cookie to clear csrf cookie
-func ClearCSRFCookie(r *http.Request) *http.Cookie {
+// clearCSRFCookie clears the csrf cookie
+func clearCSRFCookie(r *http.Request, config *Config) *http.Cookie {
 	return &http.Cookie{
 		Name:     config.CSRFCookieName,
 		Value:    "",
 		Path:     "/",
-		Domain:   csrfCookieDomain(r),
+		Domain:   csrfCookieDomain(r, config.AuthHost, config.CookieDomains),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
 		Expires:  time.Now().Local().Add(time.Hour * -1),
 	}
 }
 
-// Validate the csrf cookie against state
-func ValidateCSRFCookie(r *http.Request, c *http.Cookie) (bool, string, error) {
+// validateCSRFCookie validates the csrf cookie against state
+func validateCSRFCookie(r *http.Request, c *http.Cookie) (bool, string, error) {
 	state := r.URL.Query().Get("state")
 
 	if len(c.Value) != 32 {
@@ -201,30 +197,31 @@ func ValidateCSRFCookie(r *http.Request, c *http.Cookie) (bool, string, error) {
 	return true, state[33:], nil
 }
 
-func Nonce() (error, string) {
+// generateNonce generates a random nonce string
+func generateNonce() (string, error) {
 	// Make nonce
 	nonce := make([]byte, 16)
 	_, err := rand.Read(nonce)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 
-	return nil, fmt.Sprintf("%x", nonce)
+	return fmt.Sprintf("%x", nonce), nil
 }
 
 // Cookie domain
-func cookieDomain(r *http.Request) string {
+func cookieDomain(r *http.Request, cookieDomains []CookieDomain) string {
 	host := r.Header.Get("X-Forwarded-Host")
 
 	// Check if any of the given cookie domains matches
-	_, domain := matchCookieDomains(host)
+	_, domain := matchCookieDomains(host, cookieDomains)
 	return domain
 }
 
 // Cookie domain
-func csrfCookieDomain(r *http.Request) string {
+func csrfCookieDomain(r *http.Request, authHost string, cookieDomains []CookieDomain) string {
 	var host string
-	if use, domain := useAuthDomain(r); use {
+	if use, domain := useAuthDomain(r, authHost, cookieDomains); use {
 		host = domain
 	} else {
 		host = r.Header.Get("X-Forwarded-Host")
@@ -235,12 +232,15 @@ func csrfCookieDomain(r *http.Request) string {
 	return p[0]
 }
 
-// Return matching cookie domain if exists
-func matchCookieDomains(domain string) (bool, string) {
+// matchCookieDomains checks if the provided domain maches any domain configured in the CookieDomains list
+// and returns the domain from the list it matched with.
+// The match is either the direct equality of domain names or the input subdomain (e.g. "a.test.com") belongs under a configured top domain ("test.com").
+// If the domain does not match CookieDomains, false is returned with the input domain as the second return value.
+func matchCookieDomains(domain string, cookieDomains []CookieDomain) (bool, string) {
 	// Remove port
 	p := strings.Split(domain, ":")
 
-	for _, d := range config.CookieDomains {
+	for _, d := range cookieDomains {
 		if d.Match(p[0]) {
 			return true, d.Domain
 		}
@@ -249,23 +249,9 @@ func matchCookieDomains(domain string) (bool, string) {
 	return false, p[0]
 }
 
-// Create cookie hmac
-func cookieSignature(r *http.Request, email, expires string) string {
-	hash := hmac.New(sha256.New, config.Secret)
-	hash.Write([]byte(cookieDomain(r)))
-	hash.Write([]byte(email))
-	hash.Write([]byte(expires))
-	return base64.URLEncoding.EncodeToString(hash.Sum(nil))
-}
-
-// Get cookie expirary
-func cookieExpiry() time.Time {
-	return time.Now().Local().Add(config.Lifetime)
-}
-
 // Cookie Domain
 
-// Cookie Domain
+// CookieDomain represents a top-level cookie domain and helper functions on it
 type CookieDomain struct {
 	Domain       string `description:"TEST1"`
 	DomainLen    int    `description:"TEST2"`
@@ -273,7 +259,7 @@ type CookieDomain struct {
 	SubDomainLen int    `description:"TEST4"`
 }
 
-func NewCookieDomain(domain string) *CookieDomain {
+func newCookieDomain(domain string) *CookieDomain {
 	return &CookieDomain{
 		Domain:       domain,
 		DomainLen:    len(domain),
@@ -282,6 +268,7 @@ func NewCookieDomain(domain string) *CookieDomain {
 	}
 }
 
+// Match returns true if host matches the CookieDomain or is a subdomain of it
 func (c *CookieDomain) Match(host string) bool {
 	// Exact domain match?
 	if host == c.Domain {
@@ -296,29 +283,34 @@ func (c *CookieDomain) Match(host string) bool {
 	return false
 }
 
+// UnmarshalFlag unmarshals the CookieDomain from the flag string
 func (c *CookieDomain) UnmarshalFlag(value string) error {
-	*c = *NewCookieDomain(value)
+	*c = *newCookieDomain(value)
 	return nil
 }
 
+// MarshalFlag marshals the CookieDomain into a flag string
 func (c *CookieDomain) MarshalFlag() (string, error) {
 	return c.Domain, nil
 }
 
 // Legacy support for comma separated list of cookie domains
 
+// CookieDomains holds a list of cookie domains
 type CookieDomains []CookieDomain
 
+// UnmarshalFlag unmarshals the CookieDomains from the flag string
 func (c *CookieDomains) UnmarshalFlag(value string) error {
 	if len(value) > 0 {
 		for _, d := range strings.Split(value, ",") {
-			cookieDomain := NewCookieDomain(d)
+			cookieDomain := newCookieDomain(d)
 			*c = append(*c, *cookieDomain)
 		}
 	}
 	return nil
 }
 
+// MarshalFlag marshals the CookieDomain into a flag string
 func (c *CookieDomains) MarshalFlag() (string, error) {
 	var domains []string
 	for _, d := range *c {

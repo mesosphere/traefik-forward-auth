@@ -144,9 +144,6 @@ func TestConfigTransformation(t *testing.T) {
 
 	assert.Equal("/_oauthpath", c.Path, "path should add slash to front")
 
-	assert.Equal("verysecret", c.SecretString)
-	assert.Equal([]byte("verysecret"), c.Secret, "secret should be converted to byte array")
-
 	assert.Equal(200, c.LifetimeString)
 	assert.Equal(time.Second*time.Duration(200), c.Lifetime, "lifetime should be read and converted to duration")
 }

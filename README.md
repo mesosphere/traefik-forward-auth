@@ -7,6 +7,10 @@ This is a partial rewrite to support generic OIDC Providers that provide [OpenID
 
 [`noelcatt/traefik-forward-auth`](https://github.com/noelcatt/traefik-forward-auth) and [`funkypenguin/traefik-forward-auth`](https://github.com/funkypenguin/traefik-forward-auth) also made [`thomseddon/traefik-forward-auth`](https://github.com/thomseddon/traefik-forward-auth) apply to generic OIDC, but they are now based on an older version which does not support rules and also require the UserInfo endpoint to be supported.
 
+This version optionally implements RBAC within Kuberbetes by using `ClusterRole` and `ClusterRoleBinding`. It extends from the original Kubernetes usage as it also allows specifying full URLs (including a scheme and domain) within `nonResourceURLs` attribute of `ClusterRole`. And unlike the original behavior, `*` wildcard character matches within one path component only. There is a special globstar `**` to match within multiple paths (inspired by Bash, Python and JS libraries).
+
+The raw id-token received from OIDC provider can optionally be passed upstream via a custom header.
+
 ## Differences to the original
 
 The instructions for [`thomseddon/traefik-forward-auth`](https://github.com/thomseddon/traefik-forward-auth) are useful, keeping in mind that this version:
@@ -19,3 +23,10 @@ The instructions for [`thomseddon/traefik-forward-auth`](https://github.com/thom
 - Returns 401 rather than redirect to OIDC Login if an unauthenticated request is not for HTML (e.g. AJAX calls, images).
 - Sends a username cookie as well
 - If `auth-host` is set and `cookie-domains` is not set, traefik-forward-auth will redirect any requests using other hostnames to `auth-host`. Set `auth-host` to the OIDC redirect host to ensure that use of the IP or other DNS names will be redirected and get a suitable cookie.
+
+## Upgrading from 2.x version to 3.0 (Breaking Changes):
+
+- config `session-key` (`SESSION_KEY` env) is now called `encryption-key` (`ENCRYPTION_KEY` env) and is `REQUIRED`
+- config `groups-session-name` (`GROUPS_SESSION_NAME`) is deprecated as both email and groups are part of the single cookie `cookie-name` (`COOKIE_NAME` env)
+- character `*` in existing RBAC rules now works within one path component only, so a single `*` has to be replaced with `**` to match the previous behavior (whether to use `*` or `**` is up to the person writing those rules)
+
