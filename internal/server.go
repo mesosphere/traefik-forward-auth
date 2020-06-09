@@ -290,9 +290,16 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			name = email.(string)
 		}
 
-		http.SetCookie(w, MakeNameCookie(r, name.(string)))
+		nameStr := name.(string)
+
+		// Some claims, such as github name, arrive surrounded by quotation marks
+		if strings.HasPrefix(nameStr, `"`) && strings.HasSuffix(nameStr, `"`) {
+			nameStr = strings.TrimFunc(nameStr, func(r rune) bool { return r == '"' })
+		}
+
+		http.SetCookie(w, MakeNameCookie(r, nameStr))
 		logger.WithFields(logrus.Fields{
-			"name": name.(string),
+			"name": nameStr,
 		}).Infof("Generated name cookie")
 
 		// Mapping groups
