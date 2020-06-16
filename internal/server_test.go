@@ -2,6 +2,7 @@ package tfa
 
 import (
 	"fmt"
+	"github.com/coreos/go-oidc"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -44,8 +45,9 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 	config = newTestConfig(testAuthKey2, testEncKey2) // new auth & encryption key!
 
 	config.AuthHost = ""
+	config.OIDCProvider = &oidc.Provider{}
 	res, _ = doHTTPRequest(config, req, c)
-	assert.Equal(401, res.StatusCode, "invalid cookie should not be authorised")
+	assert.Equal(302, res.StatusCode, "invalid cookie should redirect")
 
 	// Should validate email
 	req = newDefaultHTTPRequest("/foo")
