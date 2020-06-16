@@ -137,13 +137,8 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		// Validate cookie
 		sess, err := s.authenticator.ValidateSessionCookie(r, c)
 		if err != nil {
-			if err.Error() == "cookie has expired" {
-				logger.Info("cookie has expired")
-				s.notAuthenticated(logger, w, r)
-			} else {
-				logger.Errorf("invalid cookie: %v", err)
-				http.Error(w, "Not authorized", 401)
-			}
+			logger.Info(fmt.Sprintf("cookie validaton failure: %s", err.Error()))
+			s.notAuthenticated(logger, w, r)
 			return
 		}
 
