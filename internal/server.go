@@ -303,7 +303,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		logger.Printf("creating group claims session with groups: %v", groups)
 		session, err := s.sessionStore.Get(r, config.GroupsSessionName)
 		if err != nil {
-			logger.Errorf("failed to get group claims session: %v", err)
+			logger.Errorf("failed to create claims session: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -324,6 +324,7 @@ func (s *Server) notAuthenticated(logger *logrus.Entry, w http.ResponseWriter, r
 	// Redirect if request accepts HTML. Fail if request is AJAX, image, etc
 	acceptHeader := r.Header.Get("Accept")
 	acceptParts := strings.Split(acceptHeader, ",")
+
 	for i, acceptPart := range acceptParts {
 		format := strings.Trim(strings.SplitN(acceptPart, ";", 2)[0], " ")
 		if format == "text/html" || (i == 0 && format == "*/*") {
@@ -354,6 +355,13 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 		scope = []string{config.Scope}
 	} else {
 		scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
+	}
+
+	// clear existing claims session
+	session, _ := s.sessionStore.Get(r, config.GroupsSessionName)
+	if session != nil {
+		session.Options.MaxAge = -1
+		_ = session.Save(r, w)
 	}
 
 	oauth2Config := oauth2.Config{
