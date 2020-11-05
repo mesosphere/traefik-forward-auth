@@ -84,9 +84,14 @@ func redirectBase(r *http.Request) string {
 }
 
 func GetUriPath(r *http.Request) string {
-	prefix := r.Header.Get("X-Forwarded-Prefix")
-	uri := r.Header.Get("X-Forwarded-Uri")
-	return fmt.Sprintf("%s/%s", strings.TrimRight(prefix, "/"), strings.TrimLeft(uri, "/"))
+	// Use X-Replaced-Path if present (Traefik Modifiers)
+	if r.Header.Get("X-Replaced-Path") != "" {
+		return r.Header.Get("X-Replaced-Path")
+	} else {
+		prefix := r.Header.Get("X-Forwarded-Prefix")
+		uri := r.Header.Get("X-Forwarded-Uri")
+		return fmt.Sprintf("%s/%s", strings.TrimRight(prefix, "/"), strings.TrimLeft(uri, "/"))
+	}
 }
 
 // // Return url

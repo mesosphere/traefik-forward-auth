@@ -80,6 +80,7 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 		"X-Forwarded-Host":   r.Header.Get("X-Forwarded-Host"),
 		"X-Forwarded-Prefix": r.Header.Get("X-Forwarded-Prefix"),
 		"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
+		"X-Replaced-Path":    r.Header.Get("X-Replaced-Path"),
 	})
 
 	// Modify request
