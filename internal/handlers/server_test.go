@@ -1,8 +1,10 @@
-package tfa
+package handlers
 
 import (
 	"fmt"
 	"github.com/coreos/go-oidc"
+	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
+	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/client-go/kubernetes/fake"
 
+	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
 	intlog "github.com/mesosphere/traefik-forward-auth/internal/log"
 )
 
@@ -24,6 +27,39 @@ func init() {
 	_ = intlog.NewDefaultLogger("debug", "panic")
 }
 
+type fakeUserInfoStore struct{}
+
+func (f *fakeUserInfoStore) Clear(r *http.Request, w http.ResponseWriter) error {
+	return nil
+}
+
+func (f *fakeUserInfoStore) Get(r *http.Request) (*v1alpha1.UserInfo, error) {
+	return &v1alpha1.UserInfo{
+		Username: "test",
+		Email:    "test@test.com",
+		Groups:   []string{"test"},
+	}, nil
+}
+
+func (f *fakeUserInfoStore) Save(r *http.Request, w http.ResponseWriter, info *v1alpha1.UserInfo) error {
+	return nil
+}
+
+var (
+	testAuthKey1 = "4Zhbg4n22r4I8Kdg1gHMzRWQpT7TOArD"
+	testAuthKey2 = "HhaAG845dg9b16xKk8yiX+XoBhEAeHnQ"
+	testEncKey1  = "8jAnK6NGuzEuH3y13V+5Bm2jgp5bv8ku"
+	testEncKey2  = "FmvAqxzYy9ru0WaSU6SkLHP1ScoSVF/t"
+)
+
+func newTestConfig(authKey, encKey string) *configuration.Config {
+	c, _ := configuration.NewConfig([]string{})
+	c.SecretString = authKey
+	c.EncryptionKeyString = encKey
+
+	return c
+}
+
 /**
  * Tests
  */
@@ -33,6 +69,7 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.AuthHost = "dex.example.com"
 	config.Lifetime = time.Minute * time.Duration(config.LifetimeString)
+	a := authentication.NewAuthenticator(config)
 	// Should redirect vanilla request to login url
 	req := newDefaultHTTPRequest("/foo")
 	res, _ := doHTTPRequest(config, req, nil)
@@ -40,7 +77,7 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 
 	// Should catch invalid cookie
 	req = newDefaultHTTPRequest("/foo")
-	c, err := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	c, err := a.MakeSessionCookie(req, authentication.SessionCookie{EMail: "test@example.com"})
 	assert.Nil(err)
 	config = newTestConfig(testAuthKey2, testEncKey2) // new auth & encryption key!
 
@@ -51,7 +88,7 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 
 	// Should validate email
 	req = newDefaultHTTPRequest("/foo")
-	c, err = makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	c, err = a.MakeSessionCookie(req, authentication.SessionCookie{EMail: "test@example.com"})
 	assert.Nil(err)
 	config.Domains = []string{"test.com"}
 
@@ -65,10 +102,11 @@ func TestServerAuthHandlerExpired(t *testing.T) {
 	config.Lifetime = time.Second * time.Duration(-1)
 	config.Domains = []string{"test.com"}
 	config.AuthHost = "potato.example.com"
+	a := authentication.NewAuthenticator(config)
 
 	// Should redirect expired cookie
 	req := newDefaultHTTPRequest("/foo")
-	c, err := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	c, err := a.MakeSessionCookie(req, authentication.SessionCookie{EMail: "test@example.com"})
 	assert.Nil(err)
 	res, _ := doHTTPRequest(config, req, c)
 	assert.Equal(307, res.StatusCode, "request with expired cookie should be redirected")
@@ -84,9 +122,10 @@ func TestServerAuthHandlerValid(t *testing.T) {
 	assert := assert.New(t)
 	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.Lifetime = time.Minute * time.Duration(config.LifetimeString)
+	a := authentication.NewAuthenticator(config)
 	// Should allow valid request email
 	req := newDefaultHTTPRequest("/foo")
-	c, err := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	c, err := a.MakeSessionCookie(req, authentication.SessionCookie{EMail: "test@example.com"})
 	assert.Nil(err)
 
 	config.Domains = []string{}
@@ -158,7 +197,7 @@ func TestServerRouteHeaders(t *testing.T) {
 	assert := assert.New(t)
 	config := newTestConfig(testAuthKey1, testEncKey1)
 	config.AuthHost = "potato.example.com"
-	config.Rules = map[string]*Rule{
+	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
 			Rule:   "Headers(`X-Test`, `test123`)",
@@ -192,7 +231,7 @@ func TestServerRouteHeaders(t *testing.T) {
 func TestServerRouteHost(t *testing.T) {
 	assert := assert.New(t)
 	config := newTestConfig(testAuthKey1, testEncKey1)
-	config.Rules = map[string]*Rule{
+	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
 			Rule:   "Host(`api.example.com`)",
@@ -225,7 +264,7 @@ func TestServerRouteHost(t *testing.T) {
 func TestServerRouteMethod(t *testing.T) {
 	assert := assert.New(t)
 	config := newTestConfig(testAuthKey1, testEncKey1)
-	config.Rules = map[string]*Rule{
+	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
 			Rule:   "Method(`PUT`)",
@@ -248,7 +287,7 @@ func TestServerRouteMethod(t *testing.T) {
 func TestServerRoutePath(t *testing.T) {
 	assert := assert.New(t)
 	config := newTestConfig(testAuthKey1, testEncKey1)
-	config.Rules = map[string]*Rule{
+	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
 			Rule:   "Path(`/api`)",
@@ -284,7 +323,7 @@ func TestServerRoutePath(t *testing.T) {
 func TestServerRouteQuery(t *testing.T) {
 	assert := assert.New(t)
 	config := newTestConfig(testAuthKey1, testEncKey1)
-	config.Rules = map[string]*Rule{
+	config.Rules = map[string]*configuration.Rule{
 		"1": {
 			Action: "allow",
 			Rule:   "Query(`q=test123`)",
@@ -310,7 +349,7 @@ func TestAuthzDisabled(t *testing.T) {
 
 	config.EnableRBAC = true
 	config.AuthZPassThrough = []string{"/authz/passthru", "/authz/passthru/*"}
-	s := NewServer(config, fake.NewSimpleClientset())
+	s := NewServer(nil, config, fake.NewSimpleClientset())
 
 	var r *http.Request
 	r = httptest.NewRequest("get", "http://x//rbac", nil)
@@ -357,7 +396,7 @@ func (t *UserServerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   }`)
 }
 
-func doHTTPRequest(config *Config, r *http.Request, c *http.Cookie) (*http.Response, string) {
+func doHTTPRequest(config *configuration.Config, r *http.Request, c *http.Cookie) (*http.Response, string) {
 	w := httptest.NewRecorder()
 
 	// Set cookies on recorder
@@ -366,19 +405,20 @@ func doHTTPRequest(config *Config, r *http.Request, c *http.Cookie) (*http.Respo
 	}
 
 	// Copy into request
-	for _, c := range w.HeaderMap["Set-Cookie"] {
-		r.Header.Add("Cookie", c)
-	}
+	r.Header.Add("Cookie", w.Header().Get("Set-Cookie"))
 
-	s := NewServer(config, nil)
+	if config.OIDCProvider == nil {
+		config.OIDCProvider = &oidc.Provider{}
+	}
+	s := NewServer(&fakeUserInfoStore{}, config, nil)
 
 	s.RootHandler(w, r)
 	res := w.Result()
 	body, _ := ioutil.ReadAll(res.Body)
 
-	// if res.StatusCode > 300 && res.StatusCode < 400 {
-	// 	fmt.Printf("%#v", res.Header)
-	// }
+	if res.StatusCode > 300 && res.StatusCode < 400 {
+		fmt.Printf("%#v", res.Header)
+	}
 
 	return res, string(body)
 }

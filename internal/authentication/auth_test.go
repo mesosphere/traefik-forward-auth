@@ -1,4 +1,4 @@
-package tfa
+package authentication
 
 import (
 	"fmt"
@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
+	"github.com/mesosphere/traefik-forward-auth/internal/util"
 )
 
 var (
@@ -16,8 +19,8 @@ var (
 	testEncKey2  = "FmvAqxzYy9ru0WaSU6SkLHP1ScoSVF/t"
 )
 
-func newTestConfig(authKey, encKey string) *Config {
-	c, _ := NewConfig([]string{})
+func newTestConfig(authKey, encKey string) *configuration.Config {
+	c, _ := configuration.NewConfig([]string{})
 	c.SecretString = authKey
 	c.EncryptionKeyString = encKey
 
@@ -31,62 +34,65 @@ func newTestConfig(authKey, encKey string) *Config {
 func TestAuthValidateCookie(t *testing.T) {
 	assert := assert.New(t)
 	config := newTestConfig(testAuthKey1, testEncKey1)
+	a := NewAuthenticator(config)
 	r, _ := http.NewRequest("GET", "http://example.com", nil)
 	c := &http.Cookie{}
 
 	// Should not accept an empty value
 	c.Value = ""
-	_, err := validateSessionCookie(r, c, config)
+	_, err := a.ValidateSessionCookie(r, c)
 	if assert.Error(err) {
 		assert.Equal("securecookie: the value is not valid", err.Error())
 	}
 
 	// Should catch invalid mac
 	c.Value = "MQ=="
-	_, err = validateSessionCookie(r, c, config)
+	_, err = a.ValidateSessionCookie(r, c)
 	if assert.Error(err) {
 		assert.Equal("securecookie: the value is not valid", err.Error())
 	}
 
 	// Should catch expired
 	config.Lifetime = time.Second * time.Duration(-1)
-	c, err = makeSessionCookie(r, config, sessionCookie{EMail: "test@test.com"})
+	c, err = a.MakeSessionCookie(r, SessionCookie{EMail: "test@test.com"})
 	assert.Nil(err)
-	_, err = validateSessionCookie(r, c, config)
+	_, err = a.ValidateSessionCookie(r, c)
 	if assert.Error(err) {
 		assert.Equal("securecookie: expired timestamp", err.Error())
 	}
 
 	// Should accept valid cookie
 	config.Lifetime = time.Second * time.Duration(10)
-	c, err = makeSessionCookie(r, config, sessionCookie{EMail: "test@test.com"})
+	c, err = a.MakeSessionCookie(r, SessionCookie{EMail: "test@test.com"})
 	assert.Nil(err)
-	sess, err := validateSessionCookie(r, c, config)
+	sess, err := a.ValidateSessionCookie(r, c)
 	assert.Nil(err, "valid request should not return an error")
 	assert.Equal("test@test.com", sess.EMail, "valid request should return user email")
 }
 
 func TestAuthValidateEmail(t *testing.T) {
 	assert := assert.New(t)
+	config := newTestConfig(testAuthKey1, testEncKey1)
+	a := NewAuthenticator(config)
 
 	// Should allow any
-	v := validateEmail("test@test.com", []string{}, []string{})
+	v := a.ValidateEmail("test@test.com", []string{}, []string{})
 	assert.True(v, "should allow any domain if email domain is not defined")
 
 	// Should block non matching domain
-	v = validateEmail("one@two.com", []string{}, []string{"test.com"})
+	v = a.ValidateEmail("one@two.com", []string{}, []string{"test.com"})
 	assert.False(v, "should not allow user from another domain")
 
 	// Should allow matching domain
-	v = validateEmail("test@test.com", []string{}, []string{"test.com"})
+	v = a.ValidateEmail("test@test.com", []string{}, []string{"test.com"})
 	assert.True(v, "should allow user from allowed domain")
 
 	// Should block non whitelisted email address
-	v = validateEmail("one@two.com", []string{"test@test.com"}, []string{})
+	v = a.ValidateEmail("one@two.com", []string{"test@test.com"}, []string{})
 	assert.False(v, "should not allow user not in whitelist")
 
 	// Should allow matching whitelisted email address
-	v = validateEmail("test@test.com", []string{"test@test.com"}, []string{})
+	v = a.ValidateEmail("test@test.com", []string{"test@test.com"}, []string{})
 	assert.True(v, "should allow user in whitelist")
 }
 
@@ -98,7 +104,7 @@ func TestAuthValidateEmail(t *testing.T) {
 // func TestAuthGetUser(t *testing.T) {
 // }
 
-func getConfigWithLifetime() *Config {
+func getConfigWithLifetime() *configuration.Config {
 	config := newTestConfig(testAuthKey1, testEncKey1)
 	// Lifetime is set during validation, so we short circuit it here
 	config.Lifetime = time.Second * time.Duration(config.LifetimeString)
@@ -108,15 +114,16 @@ func getConfigWithLifetime() *Config {
 func TestAuthMakeCookie(t *testing.T) {
 	assert := assert.New(t)
 	config := getConfigWithLifetime()
+	a := NewAuthenticator(config)
 
 	r, _ := http.NewRequest("GET", "http://app.example.com", nil)
 	r.Header.Add("X-Forwarded-Host", "app.example.com")
 
-	c, err := makeSessionCookie(r, config, sessionCookie{EMail: "test@example.com"})
+	c, err := a.MakeSessionCookie(r, SessionCookie{EMail: "test@example.com"})
 	assert.Nil(err)
 	assert.Equal("_forward_auth", c.Name)
 	assert.Greater(len(c.Value), 18, "encoded securecookie should be longer")
-	_, err = validateSessionCookie(r, c, config)
+	_, err = a.ValidateSessionCookie(r, c)
 	assert.Nil(err, "should generate valid cookie")
 	assert.Equal("/", c.Path)
 	assert.Equal("app.example.com", c.Domain)
@@ -127,7 +134,7 @@ func TestAuthMakeCookie(t *testing.T) {
 
 	config.CookieName = "testname"
 	config.InsecureCookie = true
-	c, err = makeSessionCookie(r, config, sessionCookie{EMail: "test@example.com"})
+	c, err = a.MakeSessionCookie(r, SessionCookie{EMail: "test@example.com"})
 	assert.Nil(err)
 	assert.Equal("testname", c.Name)
 	assert.False(c.Secure)
@@ -136,34 +143,32 @@ func TestAuthMakeCookie(t *testing.T) {
 func TestAuthMakeCSRFCookie(t *testing.T) {
 	assert := assert.New(t)
 	config := getConfigWithLifetime()
+	a := NewAuthenticator(config)
 	r, _ := http.NewRequest("GET", "http://app.example.com", nil)
 	r.Header.Add("X-Forwarded-Host", "app.example.com")
 
 	// No cookie domain or auth url
-	c := makeCSRFCookie(r, config, "12345678901234567890123456789012")
+	c := a.MakeCSRFCookie(r, "12345678901234567890123456789012")
 	assert.Equal("app.example.com", c.Domain)
 
 	// With cookie domain but no auth url
-	config = &Config{
-		CookieDomains: []CookieDomain{*newCookieDomain("example.com")},
-	}
-	c = makeCSRFCookie(r, config, "12345678901234567890123456789012")
+	config.CookieDomains = []util.CookieDomain{*util.NewCookieDomain("example.com")}
+	c = a.MakeCSRFCookie(r, "12345678901234567890123456789012")
 	assert.Equal("app.example.com", c.Domain)
 
 	// With cookie domain and auth url
-	config = &Config{
-		AuthHost:      "auth.example.com",
-		CookieDomains: []CookieDomain{*newCookieDomain("example.com")},
-	}
-	c = makeCSRFCookie(r, config, "12345678901234567890123456789012")
+	config.AuthHost = "auth.example.com"
+	config.CookieDomains = []util.CookieDomain{*util.NewCookieDomain("example.com")}
+	c = a.MakeCSRFCookie(r, "12345678901234567890123456789012")
 	assert.Equal("example.com", c.Domain)
 }
 
 func TestAuthClearCSRFCookie(t *testing.T) {
 	config := getConfigWithLifetime()
+	a := NewAuthenticator(config)
 	r, _ := http.NewRequest("GET", "http://example.com", nil)
 
-	c := clearCSRFCookie(r, config)
+	c := a.ClearCSRFCookie(r)
 	if c.Value != "" {
 		t.Error("ClearCSRFCookie should create cookie with empty value")
 	}
@@ -171,6 +176,8 @@ func TestAuthClearCSRFCookie(t *testing.T) {
 
 func TestAuthValidateCSRFCookie(t *testing.T) {
 	assert := assert.New(t)
+	config := getConfigWithLifetime()
+	a := NewAuthenticator(config)
 	c := &http.Cookie{}
 
 	newCsrfRequest := func(state string) *http.Request {
@@ -182,13 +189,13 @@ func TestAuthValidateCSRFCookie(t *testing.T) {
 	// Should require 32 char string
 	r := newCsrfRequest("")
 	c.Value = ""
-	valid, _, err := validateCSRFCookie(r, c)
+	valid, _, err := a.ValidateCSRFCookie(r, c)
 	assert.False(valid)
 	if assert.Error(err) {
 		assert.Equal("Invalid CSRF cookie value", err.Error())
 	}
 	c.Value = "123456789012345678901234567890123"
-	valid, _, err = validateCSRFCookie(r, c)
+	valid, _, err = a.ValidateCSRFCookie(r, c)
 	assert.False(valid)
 	if assert.Error(err) {
 		assert.Equal("Invalid CSRF cookie value", err.Error())
@@ -197,7 +204,7 @@ func TestAuthValidateCSRFCookie(t *testing.T) {
 	// Should require valid state
 	r = newCsrfRequest("12345678901234567890123456789012:")
 	c.Value = "12345678901234567890123456789012"
-	valid, _, err = validateCSRFCookie(r, c)
+	valid, _, err = a.ValidateCSRFCookie(r, c)
 	assert.False(valid)
 	if assert.Error(err) {
 		assert.Equal("Invalid CSRF state value", err.Error())
@@ -206,7 +213,7 @@ func TestAuthValidateCSRFCookie(t *testing.T) {
 	// Should allow valid state
 	r = newCsrfRequest("12345678901234567890123456789012:99")
 	c.Value = "12345678901234567890123456789012"
-	valid, state, err := validateCSRFCookie(r, c)
+	valid, state, err := a.ValidateCSRFCookie(r, c)
 	assert.True(valid, "valid request should return valid")
 	assert.Nil(err, "valid request should not return an error")
 	assert.Equal("99", state, "valid request should return correct state")
@@ -214,57 +221,16 @@ func TestAuthValidateCSRFCookie(t *testing.T) {
 
 func TestAuthNonce(t *testing.T) {
 	assert := assert.New(t)
-	nonce1, err := generateNonce()
+	config := getConfigWithLifetime()
+	a := NewAuthenticator(config)
+
+	nonce1, err := a.GenerateNonce()
 	assert.Nil(err, "error generating nonce")
 	assert.Len(nonce1, 32, "length should be 32 chars")
 
-	nonce2, err := generateNonce()
+	nonce2, err := a.GenerateNonce()
 	assert.Nil(err, "error generating nonce")
 	assert.Len(nonce2, 32, "length should be 32 chars")
 
 	assert.NotEqual(nonce1, nonce2, "nonce should not be equal")
-}
-
-func TestAuthCookieDomainMatch(t *testing.T) {
-	assert := assert.New(t)
-	cd := newCookieDomain("example.com")
-
-	// Exact should match
-	assert.True(cd.Match("example.com"), "exact domain should match")
-
-	// Subdomain should match
-	assert.True(cd.Match("test.example.com"), "subdomain should match")
-
-	// Derived domain should not match
-	assert.False(cd.Match("testexample.com"), "derived domain should not match")
-
-	// Other domain should not match
-	assert.False(cd.Match("test.com"), "other domain should not match")
-}
-
-func TestAuthCookieDomains(t *testing.T) {
-	assert := assert.New(t)
-	cds := CookieDomains{}
-
-	err := cds.UnmarshalFlag("one.com,two.org")
-	assert.Nil(err)
-	expected := CookieDomains{
-		CookieDomain{
-			Domain:       "one.com",
-			DomainLen:    7,
-			SubDomain:    ".one.com",
-			SubDomainLen: 8,
-		},
-		CookieDomain{
-			Domain:       "two.org",
-			DomainLen:    7,
-			SubDomain:    ".two.org",
-			SubDomainLen: 8,
-		},
-	}
-	assert.Equal(expected, cds)
-
-	marshal, err := cds.MarshalFlag()
-	assert.Nil(err)
-	assert.Equal("one.com,two.org", marshal)
 }

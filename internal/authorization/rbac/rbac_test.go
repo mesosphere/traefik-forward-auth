@@ -4,7 +4,6 @@ import (
 	"net/url"
 	"testing"
 
-	//"gotest.tools/assert"
 	"github.com/stretchr/testify/assert"
 	rbacv1 "k8s.io/api/rbac/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -169,7 +168,6 @@ func TestRBACAuthorizer_Authorize(t *testing.T) {
 
 func TestRBACAuthorizer_Authorize2(t *testing.T) {
 	test := testCase{
-
 		user:   authorization.User{Name: "boyle@ldap.forumsys.com", Groups: []string{"oidc:chemists"}},
 		url:    makeURL("/ops/portal/grafana/public/fonts/roboto/RxZJdnzeo3R5zSexge8UUVtXRa8TVwTICgirnJhmVJw.woff2"),
 		should: allow,

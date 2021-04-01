@@ -1,4 +1,4 @@
-package tfa
+package configuration
 
 import (
 	"bytes"
@@ -21,6 +21,7 @@ import (
 
 	"github.com/mesosphere/traefik-forward-auth/internal/features"
 	internallog "github.com/mesosphere/traefik-forward-auth/internal/log"
+	"github.com/mesosphere/traefik-forward-auth/internal/util"
 )
 
 var (
@@ -38,12 +39,13 @@ type Config struct {
 	Scope                   string               `long:"scope" env:"SCOPE" description:"Define scope"`
 	AuthHost                string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
 	Config                  func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
-	CookieDomains           []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
+	CookieDomains           []util.CookieDomain  `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
 	InsecureCookie          bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
 	CookieName              string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
 	EmailHeaderNames        CommaSeparatedList   `long:"email-header-names" env:"EMAIL_HEADER_NAMES" default:"X-Forwarded-User" description:"Response headers containing the authenticated user's username"`
 	UserCookieName          string               `long:"user-cookie-name" env:"USER_COOKIE_NAME" default:"_forward_auth_name" description:"User Cookie Name"`
 	CSRFCookieName          string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
+	ClaimsSessionName       string               `long:"claims-session-name" env:"CLAIMS_SESSION_NAME" default:"_forward_auth_claims" description:"Name of the claims session"`
 	DefaultAction           string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
 	Domains                 CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
 	LifetimeString          int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
@@ -63,6 +65,11 @@ type Config struct {
 	EnableRBAC              bool               `long:"enable-rbac" env:"ENABLE_RBAC" description:"Indicates that RBAC support should be enabled"`
 	AuthZPassThrough        CommaSeparatedList `long:"authz-pass-through" env:"AUTHZ_PASS_THROUGH" description:"One or more routes which bypass authorization checks"`
 	CaseInsensitiveSubjects bool               `long:"case-insensitive-subjects" env:"CASE_INSENSITIVE_SUBJECTS" description:"Make case-insensitive comparison of user and group names in the RBAC implementation"`
+
+	// Storage
+	EnableInClusterStorage bool   `long:"enable-in-cluster-storage" env:"ENABLE_IN_CLUSTER_STORAGE" description:"When true, sessions are store in a kubernetes apiserver"`
+	ClusterStoreNamespace  string `long:"cluster-store-namespace" env:"CLUSTER_STORE_NAMESPACE" default:"default" description:"Namespace to store userinfo secrets"`
+	ClusterStoreCacheTTL   int    `long:"cluster-store-cache-ttl" env:"CLUSTER_STORE_CACHE_TTL" default:"60" description:"TTL (in seconds) of the internal secret cache"`
 
 	// Filled during transformations
 	OIDCContext         context.Context
@@ -279,7 +286,7 @@ func NewRule() *Rule {
 	}
 }
 
-func (r *Rule) formattedRule() string {
+func (r *Rule) FormattedRule() string {
 	// Traefik implements their own "Host" matcher and then offers "HostRegexp"
 	// to invoke the mux "Host" matcher. This ensures the mux version is used
 	return strings.ReplaceAll(r.Rule, "Host(", "HostRegexp(")
