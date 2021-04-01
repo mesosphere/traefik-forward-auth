@@ -16,9 +16,7 @@ import (
 )
 
 const (
-	// using config would be a circular import unless I wanted to fix everything now
-	// TODO (jr): fix everything
-	cacheSyncDuration = time.Minute * time.Duration(10)
+	cacheSyncDuration = time.Minute * 10
 )
 
 type RBACAuthorizer struct {

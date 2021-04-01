@@ -139,14 +139,12 @@ func TestRBACAuthorizer_Authorize(t *testing.T) {
 	}
 }
 
-
 func TestRBACAuthorizer_Authorize2(t *testing.T) {
 	test := testCase{
 
-			user: authorization.User{Name: "boyle@ldap.forumsys.com", Groups:[]string{"oidc:chemists"}},
-			url: "/ops/portal/grafana/public/fonts/roboto/RxZJdnzeo3R5zSexge8UUVtXRa8TVwTICgirnJhmVJw.woff2",
-			should: allow,
-
+		user:   authorization.User{Name: "boyle@ldap.forumsys.com", Groups: []string{"oidc:chemists"}},
+		url:    "/ops/portal/grafana/public/fonts/roboto/RxZJdnzeo3R5zSexge8UUVtXRa8TVwTICgirnJhmVJw.woff2",
+		should: allow,
 	}
 
 	role := makeRole("grafana-admin", []string{"*"}, []string{"/ops/portal/grafana", "/ops/portal/grafana/*"})

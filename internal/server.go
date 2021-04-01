@@ -2,13 +2,13 @@ package tfa
 
 import (
 	"fmt"
+	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
 	"net/http"
 	neturl "net/url"
 	"strings"
 
 	"github.com/containous/traefik/pkg/rules"
 	"github.com/coreos/go-oidc"
-	"github.com/gorilla/sessions"
 	"github.com/mesosphere/traefik-forward-auth/internal/authorization/rbac"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
@@ -24,18 +24,18 @@ const (
 )
 
 type Server struct {
-	router       *rules.Router
-	sessionStore sessions.Store
-	authorizer   authorization.Authorizer
-	log          logrus.FieldLogger
+	router     *rules.Router
+	userinfo   v1alpha1.UserInfoInterface
+	authorizer authorization.Authorizer
+	log        logrus.FieldLogger
 }
 
-func NewServer(sessionStore sessions.Store, clientset kubernetes.Interface) *Server {
+func NewServer(userinfo v1alpha1.UserInfoInterface, clientset kubernetes.Interface) *Server {
 	s := &Server{
 		log: internallog.NewDefaultLogger(config.LogLevel, config.LogFormat),
 	}
 	s.buildRoutes()
-	s.sessionStore = sessionStore
+	s.userinfo = userinfo
 	if config.EnableRBAC {
 		s.authorizer = rbac.NewRBACAuthorizer(clientset)
 	}
@@ -302,30 +302,16 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			logger.Errorf("failed to get groups claims session. GroupsAttributeName: %s", config.GroupsAttributeName)
 		}
 
-		logger.Printf("creating group claims session with groups: %v", groups)
-		session, err := s.sessionStore.Get(r, config.GroupsSessionName)
-		if err != nil {
-			// from the .Get() documentation:
-			// "It returns a new session and an error if the session exists but could not be decoded."
-			// So it's ok to ignore and use the newly-created secure session! No need to hard-fail here.
-			logger.Errorf("unable to decode existing session with group claims (creating a new one): %v", err)
-		}
-
-		if session == nil {
-			// should never happen
+		logger.Printf("creating claims session with groups: %v", groups)
+		if err := s.userinfo.Save(r, w, &v1alpha1.UserInfo{
+			Username: name.(string),
+			Email:    email.(string),
+			Groups:   groups,
+		}); err != nil {
+			logger.Errorf("error saving session: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
-
-		session.Values["groups"] = make([]string, len(groups))
-		copy(session.Values["groups"].([]string), groups)
-
-		session.Options.Domain = cookieDomain(r)
-		if err := session.Save(r, w); err != nil {
-			logger.Errorf("error saving session: %v", err)
-			http.Error(w, "Bad Gateway", 502)
-		}
-
 		// Redirect
 		http.Redirect(w, r, redirect, http.StatusTemporaryRedirect)
 	}
@@ -335,6 +321,7 @@ func (s *Server) notAuthenticated(logger *logrus.Entry, w http.ResponseWriter, r
 	// Redirect if request accepts HTML. Fail if request is AJAX, image, etc
 	acceptHeader := r.Header.Get("Accept")
 	acceptParts := strings.Split(acceptHeader, ",")
+
 	for i, acceptPart := range acceptParts {
 		format := strings.Trim(strings.SplitN(acceptPart, ";", 2)[0], " ")
 		if format == "text/html" || (i == 0 && format == "*/*") {
@@ -367,6 +354,9 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 		scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
 	}
 
+	// clear existing claims session
+	_ = s.userinfo.Clear(r, w)
+
 	oauth2Config := oauth2.Config{
 		ClientID:     config.ClientId,
 		ClientSecret: config.ClientSecret,
@@ -398,25 +388,11 @@ func (s *Server) logger(r *http.Request, rule, msg string) *logrus.Entry {
 }
 
 func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
-	session, err := s.sessionStore.Get(r, config.GroupsSessionName)
+	userInfo, err := s.userinfo.Get(r)
 	if err != nil {
-		return nil, fmt.Errorf("error getting session: %w", err)
+		return nil, err
 	}
-
-	i, ok := session.Values["groups"]
-	if !ok {
-		return nil, nil
-	}
-
-	groups, ok := i.([]string)
-	if !ok {
-		return nil, fmt.Errorf("could not cast groups to string slice: %v", groups)
-	}
-
-	if groups == nil {
-		return make([]string, 0), nil
-	}
-	return groups, nil
+	return userInfo.Groups, nil
 }
 
 func (s *Server) authzIsBypassed(r *http.Request) bool {

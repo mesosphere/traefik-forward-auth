@@ -335,7 +335,7 @@ func TestAuthzDisabled(t *testing.T) {
 
 	config.EnableRBAC = true
 	config.AuthZPassThrough = []string{"/authz/passthru", "/authz/passthru/*"}
-	s := NewServer(&fakeStore{}, fake.NewSimpleClientset())
+	s := NewServer(nil, fake.NewSimpleClientset())
 
 	var r *http.Request
 	r = httptest.NewRequest("get", "http://x//rbac", nil)
@@ -380,7 +380,7 @@ func doHttpRequest(r *http.Request, c *http.Cookie) (*http.Response, string) {
 		r.Header.Add("Cookie", c)
 	}
 
-	s := NewServer(&fakeStore{}, nil)
+	s := NewServer(nil, nil)
 
 	s.RootHandler(w, r)
 	res := w.Result()

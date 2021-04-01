@@ -132,7 +132,7 @@ func MakeIDCookie(r *http.Request, email string) *http.Cookie {
 		Name:     config.CookieName,
 		Value:    value,
 		Path:     "/",
-		Domain:   cookieDomain(r),
+		Domain:   GetCookieDomain(r),
 		HttpOnly: true,
 		Secure:   !config.InsecureCookie,
 		Expires:  expires,
@@ -147,7 +147,7 @@ func MakeNameCookie(r *http.Request, name string) *http.Cookie {
 		Name:     config.UserCookieName,
 		Value:    name,
 		Path:     "/",
-		Domain:   cookieDomain(r),
+		Domain:   GetCookieDomain(r),
 		HttpOnly: false,
 		Secure:   false,
 		Expires:  expires,
@@ -213,7 +213,7 @@ func Nonce() (error, string) {
 }
 
 // Cookie domain
-func cookieDomain(r *http.Request) string {
+func GetCookieDomain(r *http.Request) string {
 	host := r.Header.Get("X-Forwarded-Host")
 
 	// Check if any of the given cookie domains matches
@@ -252,7 +252,7 @@ func matchCookieDomains(domain string) (bool, string) {
 // Create cookie hmac
 func cookieSignature(r *http.Request, email, expires string) string {
 	hash := hmac.New(sha256.New, config.Secret)
-	hash.Write([]byte(cookieDomain(r)))
+	hash.Write([]byte(GetCookieDomain(r)))
 	hash.Write([]byte(email))
 	hash.Write([]byte(expires))
 	return base64.URLEncoding.EncodeToString(hash.Sum(nil))
