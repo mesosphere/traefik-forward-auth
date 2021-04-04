@@ -240,12 +240,13 @@ func matchCookieDomains(domain string) (bool, string) {
 	// Remove port
 	p := strings.Split(domain, ":")
 
-	for _, d := range config.CookieDomains {
-		if d.Match(p[0]) {
-			return true, d.Domain
+	if config != nil {
+		for _, d := range config.CookieDomains {
+			if d.Match(p[0]) {
+				return true, d.Domain
+			}
 		}
 	}
-
 	return false, p[0]
 }
 

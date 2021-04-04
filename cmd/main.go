@@ -6,6 +6,7 @@ import (
 	"github.com/mesosphere/traefik-forward-auth/internal/storage"
 	"github.com/mesosphere/traefik-forward-auth/internal/storage/cluster"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gorilla/sessions"
@@ -17,7 +18,7 @@ import (
 // Main
 func main() {
 	// Parse options
-	config := internal.NewGlobalConfig()
+	config := internal.NewGlobalConfig(os.Args[1:])
 
 	// Setup logger
 	log := logger.NewDefaultLogger(config.LogLevel, config.LogFormat)
@@ -29,7 +30,7 @@ func main() {
 	config.SetOidcProvider()
 
 	// Get clientset for Authorizers
-	var clientset *k8s.Clientset
+	var clientset k8s.Interface
 	if config.EnableRBAC || config.EnableInClusterStorage {
 		var err error
 		clientset, err = kubernetes.GetClientSet()
@@ -53,8 +54,15 @@ func main() {
 			SessionName:  config.ClaimsSessionName,
 		}
 	} else {
-		clusterStorage := cluster.NewClusterStore(clientset, config.ClusterStoreNamespace, config.Lifetime)
+		clusterStorage := cluster.NewClusterStore(
+			clientset,
+			config.ClusterStoreNamespace,
+			string(config.Secret),
+			config.Lifetime,
+			time.Duration(config.ClusterStoreCacheTTL)*time.Second)
+
 		gc := cluster.NewGC(clusterStorage, time.Minute, false, true)
+
 		if err := gc.Start(); err != nil {
 			log.Fatalf("error starting GC process: %v", err)
 		}

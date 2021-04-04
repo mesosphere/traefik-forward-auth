@@ -57,6 +57,8 @@ type Config struct {
 	SessionKey              string               `long:"session-key" env:"SESSION_KEY" description:"A session key used to encrypt browser sessions"`
 	GroupsAttributeName     string               `long:"groups-attribute-name" env:"GROUPS_ATTRIBUTE_NAME" default:"groups" description:"Map the correct attribute that contain the user groups"`
 	ClusterStoreNamespace   string               `long:"cluster-store-namespace" env:"CLUSTER_STORE_NAMESPACE" default:"default" description:"Namespace to store userinfo secrets"`
+	ClusterStoreCacheTTL    int                  `long:"cluster-store-cache-ttl" env:"CLUSTER_STORE_CACHE_TTL" default:"60" description:"TTL (in seconds) of the internal secret cache"`
+
 	// RBAC
 	EnableRBAC       bool               `long:"enable-rbac" env:"ENABLE_RBAC" description:"Indicates that RBAC support should be enabled"`
 	AuthZPassThrough CommaSeparatedList `long:"authz-pass-through" env:"AUTHZ_PASS_THROUGH" description:"One or more routes which bypass authorization checks"`
@@ -72,9 +74,9 @@ type Config struct {
 	ServiceAccountToken string
 }
 
-func NewGlobalConfig() *Config {
+func NewGlobalConfig(args []string) *Config {
 	var err error
-	config, err = NewConfig(os.Args[1:])
+	config, err = NewConfig(args)
 	if err != nil {
 		fmt.Printf("%+v\n", err)
 		os.Exit(1)

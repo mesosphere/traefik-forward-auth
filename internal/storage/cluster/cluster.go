@@ -6,25 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	tfa "github.com/mesosphere/traefik-forward-auth/internal"
-	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
-	"github.com/mesosphere/traefik-forward-auth/internal/storage"
-	"github.com/sirupsen/logrus"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	listers "k8s.io/client-go/listers/core/v1"
 	"math/rand"
 	"net/http"
 	"strings"
 	"time"
-)
 
-const (
-	informerSyncDuration = time.Minute * 10
+	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+
+	tfa "github.com/mesosphere/traefik-forward-auth/internal"
+	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
+	"github.com/mesosphere/traefik-forward-auth/internal/storage"
 )
 
 var (
@@ -43,29 +37,25 @@ func SecretError(msg string) error {
 var logger = logrus.New()
 
 type ClusterStorage struct {
-	Client     *kubernetes.Clientset
+	Client     kubernetes.Interface
 	Namespace  string
 	HmacSecret []byte
 	Lifetime   time.Duration
 	GCInterval time.Duration
 
-	secrets               v1.SecretInterface
-	secretLister          listers.SecretLister
-	sharedInformerFactory informers.SharedInformerFactory
-	informerStop          chan struct{}
-	selector              labels.Selector
-	ticker                time.Ticker
+	ticker time.Ticker
+
+	cache *UserInfoCache
 }
 
-func NewClusterStore(client *kubernetes.Clientset, namespace string, expiry time.Duration) *ClusterStorage {
+func NewClusterStore(client kubernetes.Interface, namespace, hmacSecret string, expiry, cacheTTL time.Duration) *ClusterStorage {
 	cs := &ClusterStorage{
-		Client:    client,
-		Namespace: namespace,
-		secrets:   client.CoreV1().Secrets(namespace),
-		Lifetime:  expiry,
-		selector:  labels.Set(map[string]string{storage.ClaimsLabel: "true"}).AsSelector(),
+		Client:     client,
+		Namespace:  namespace,
+		Lifetime:   expiry,
+		HmacSecret: []byte(hmacSecret),
+		cache:      NewUserInfoCache(cacheTTL),
 	}
-	cs.prepareCache()
 	return cs
 }
 
@@ -75,18 +65,7 @@ func (cs *ClusterStorage) Get(r *http.Request) (*v1alpha1.UserInfo, error) {
 		return nil, err
 	}
 
-	var userinfo *v1alpha1.UserInfo
-	secret, err := cs.getSecretByClaim(claimsId)
-	if err != nil {
-		return nil, err
-	}
-
-	userinfo, err = cs.getUserInfoFromSecret(secret)
-	if err != nil {
-		return nil, err
-	}
-
-	return userinfo, nil
+	return cs.cacheGet(claimsId)
 }
 
 func (cs *ClusterStorage) Save(r *http.Request, w http.ResponseWriter, info *v1alpha1.UserInfo) error {
@@ -102,15 +81,9 @@ func (cs *ClusterStorage) Clear(r *http.Request, w http.ResponseWriter) error {
 		// malformed, do nothing
 		return nil
 	}
+	cs.cache.Delete(claimsId)
 	cs.clearClaimsIDCookie(r, w)
 	return cs.deleteClaimsSecret(claimsId)
-}
-
-func (cs *ClusterStorage) prepareCache() {
-	cs.sharedInformerFactory = informers.NewSharedInformerFactory(cs.Client, informerSyncDuration)
-	cs.secretLister = cs.sharedInformerFactory.Core().V1().Secrets().Lister()
-	cs.sharedInformerFactory.Start(cs.informerStop)
-	cs.sharedInformerFactory.WaitForCacheSync(cs.informerStop)
 }
 
 func (cs *ClusterStorage) createClaimsIDCookie(claimsId string, r *http.Request, w http.ResponseWriter) {
@@ -180,7 +153,7 @@ func (cs *ClusterStorage) getUserInfoFromSecret(s *corev1.Secret) (*v1alpha1.Use
 		return nil, SecretError("userinfo data missing from secret")
 	}
 
-	var userinfo *v1alpha1.UserInfo
+	userinfo := &v1alpha1.UserInfo{}
 	if err := json.Unmarshal(data, userinfo); err != nil {
 		return nil, fmt.Errorf("%v: %w", SecretError("error parsing userinfo"), err)
 	}
@@ -212,20 +185,26 @@ func (cs *ClusterStorage) storeUserInfo(claimId string, info *v1alpha1.UserInfo)
 	return nil
 }
 
+func (cs *ClusterStorage) getSecrets() (*corev1.SecretList, error) {
+	return cs.Client.CoreV1().Secrets(cs.Namespace).List(metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s=true", storage.ClaimsLabel),
+	})
+}
+
 func (cs *ClusterStorage) getSecretByClaim(claimsId string) (*corev1.Secret, error) {
-	secrets, err := cs.secretLister.Secrets(cs.Namespace).List(cs.selector)
+	secrets, err := cs.getSecrets()
 	if err != nil {
 		return nil, fmt.Errorf("error getting secret list: %w", err)
 	}
 
-	for _, s := range secrets {
+	for _, s := range secrets.Items {
 		cid, ok := s.ObjectMeta.Labels[storage.ClaimsIDLabel]
 		if !ok {
 			logger.Errorf("found managed secret not containing claimID")
 			continue
 		}
 		if claimsId == cid {
-			return s, nil
+			return &s, nil
 		}
 	}
 	return nil, SecretError("not found")
@@ -245,23 +224,56 @@ func (cs *ClusterStorage) deleteClaimsSecret(claimsId string) error {
 }
 
 func (cs *ClusterStorage) deleteExpiredSecrets() error {
-	secrets, err := cs.secretLister.Secrets(cs.Namespace).List(cs.selector)
+	secrets, err := cs.getSecrets()
 	if err != nil {
 		return fmt.Errorf("error getting secret list: %w", err)
 	}
 
-	for _, secret := range secrets {
-		if secret.DeletionTimestamp != nil {
-			logger.Infof("secret %s already scheduled for deletion", secret.Name)
-			continue
-		}
+	for _, secret := range secrets.Items {
 		now := time.Now().UTC()
-		if now.Sub(secret.CreationTimestamp.UTC().Add(cs.Lifetime)) <= 0 {
+		if now.Sub(secret.CreationTimestamp.UTC().Add(cs.Lifetime)) >= 0 {
+			claimId, ok := secret.Labels[storage.ClaimsIDLabel]
+			if ok {
+				cs.cache.Delete(claimId)
+			}
+			if secret.DeletionTimestamp != nil {
+				logger.Infof("secret %s already scheduled for deletion", secret.Name)
+				continue
+			}
+
 			if err := cs.Client.CoreV1().Secrets(cs.Namespace).Delete(
 				secret.Name, &metav1.DeleteOptions{}); err != nil {
 				logger.Errorf("error deleting expired secret %s/%s: %s", cs.Namespace, secret.Name, err)
 			}
 		}
 	}
+	return nil
+}
+
+func (cs *ClusterStorage) cacheGet(claimsId string) (*v1alpha1.UserInfo, error) {
+	userInfo := cs.cache.Get(claimsId)
+	if userInfo != nil {
+		return userInfo, nil
+	}
+
+	secret, err := cs.getSecretByClaim(claimsId)
+	if err != nil {
+		return nil, err
+	}
+
+	userInfo, err = cs.getUserInfoFromSecret(secret)
+	if err != nil {
+		return nil, err
+	}
+
+	cs.cache.Save(claimsId, userInfo)
+	return userInfo, nil
+}
+
+func (cs *ClusterStorage) cacheSave(claimsId string, userInfo *v1alpha1.UserInfo) error {
+	if err := cs.storeUserInfo(claimsId, userInfo); err != nil {
+		return err
+	}
+	cs.cache.Save(claimsId, userInfo)
 	return nil
 }

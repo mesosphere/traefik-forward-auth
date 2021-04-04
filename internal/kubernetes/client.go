@@ -14,7 +14,7 @@ const (
 
 // GetClientSet will attempt to get an external cluster configuration if the KUBECONFIG environment
 // variable is set. Otherwise will attempt to get an in-cluster configuration.
-func GetClientSet() (*k8s.Clientset, error) {
+func GetClientSet() (k8s.Interface, error) {
 	configPath := os.Getenv(KubeConfigEnv)
 	var config *rest.Config
 	var err error
