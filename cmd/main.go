@@ -37,8 +37,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("error getting kubernetes client: %v", err)
 		}
-	} else {
-		clientset = nil
 	}
 
 	var userInfoStore v1alpha1.UserInfoInterface

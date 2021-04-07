@@ -355,7 +355,7 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 	}
 
 	// clear existing claims session
-	_ = s.userinfo.Clear(r, w)
+	s.userinfo.Clear(r, w)
 
 	oauth2Config := oauth2.Config{
 		ClientID:     config.ClientId,
