@@ -22,7 +22,8 @@ func (c *GorillaUserInfoStore) Get(r *http.Request) (*v1alpha1.UserInfo, error) 
 	session, _ := c.SessionStore.Get(r, c.SessionName)
 	if session == nil {
 		return nil, v1alpha1.UserDataStoreError(fmt.Sprintf("could not get session: %s", c.SessionName))
-	} else if session.IsNew {
+	}
+	if session.IsNew {
 		return nil, v1alpha1.UserDataStoreError(fmt.Sprintf("session did not exist: %s", c.SessionName))
 	}
 
