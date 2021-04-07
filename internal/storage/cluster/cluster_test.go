@@ -3,8 +3,9 @@ package cluster
 import (
 	"encoding/json"
 	"fmt"
-	tfa "github.com/mesosphere/traefik-forward-auth/internal"
 	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
+	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
+	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
 	"github.com/mesosphere/traefik-forward-auth/internal/storage"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -40,7 +41,8 @@ func TestClusterStorage_Get(t *testing.T) {
 		},
 	}
 	client := fake.NewSimpleClientset(userInfoSecret)
-	cs := NewClusterStore(client, "default", hmacSecret, time.Hour, time.Minute)
+	a := authentication.NewAuthenticator(&configuration.Config{})
+	cs := NewClusterStore(client, "default", hmacSecret, time.Hour, time.Minute, a)
 	r := http.Request{
 		Method: "GET",
 		Proto:  "HTTP/1.1",
@@ -64,9 +66,9 @@ func TestClusterStorage_Get(t *testing.T) {
 
 func TestClusterStorage_Save(t *testing.T) {
 	client := fake.NewSimpleClientset()
-	cs := NewClusterStore(client, "default", hmacSecret, time.Hour, time.Minute)
+	a := authentication.NewAuthenticator(&configuration.Config{})
+	cs := NewClusterStore(client, "default", hmacSecret, time.Hour, time.Minute, a)
 
-	tfa.NewGlobalConfig(nil)
 	r := &http.Request{
 		Header: map[string][]string{
 			"X-Forwarded-Host": {"localhost"},
@@ -116,7 +118,8 @@ func TestClusterStorage_Clear(t *testing.T) {
 		},
 	}
 	client := fake.NewSimpleClientset(userInfoSecret)
-	cs := NewClusterStore(client, "default", hmacSecret, time.Hour, time.Minute)
+	a := authentication.NewAuthenticator(&configuration.Config{})
+	cs := NewClusterStore(client, "default", hmacSecret, time.Hour, time.Minute, a)
 	r := http.Request{
 		Method: "GET",
 		Proto:  "HTTP/1.1",

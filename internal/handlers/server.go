@@ -1,8 +1,10 @@
-package tfa
+package handlers
 
 import (
 	"fmt"
 	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
+	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
+	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
 	"net/http"
 	neturl "net/url"
 	"strings"
@@ -24,16 +26,22 @@ const (
 )
 
 type Server struct {
-	router     *rules.Router
-	userinfo   v1alpha1.UserInfoInterface
-	authorizer authorization.Authorizer
-	log        logrus.FieldLogger
+	router        *rules.Router
+	userinfo      v1alpha1.UserInfoInterface
+	authorizer    authorization.Authorizer
+	log           logrus.FieldLogger
+	config        *configuration.Config
+	authenticator *authentication.Authenticator
 }
 
-func NewServer(userinfo v1alpha1.UserInfoInterface, clientset kubernetes.Interface) *Server {
+func NewServer(userinfo v1alpha1.UserInfoInterface, clientset kubernetes.Interface, config *configuration.Config) *Server {
 	s := &Server{
-		log: internallog.NewDefaultLogger(config.LogLevel, config.LogFormat),
+		log:           internallog.NewDefaultLogger(config.LogLevel, config.LogFormat),
+		config:        config,
+		userinfo:      userinfo,
+		authenticator: authentication.NewAuthenticator(config),
 	}
+
 	s.buildRoutes()
 	s.userinfo = userinfo
 	if config.EnableRBAC {
@@ -50,12 +58,12 @@ func (s *Server) buildRoutes() {
 	}
 
 	// Let's build a router
-	for name, rule := range config.Rules {
+	for name, rule := range s.config.Rules {
 		var err error
 		if rule.Action == "allow" {
-			err = s.router.AddRoute(rule.formattedRule(), 1, s.AllowHandler(name))
+			err = s.router.AddRoute(rule.FormattedRule(), 1, s.AllowHandler(name))
 		} else {
-			err = s.router.AddRoute(rule.formattedRule(), 1, s.AuthHandler(name))
+			err = s.router.AddRoute(rule.FormattedRule(), 1, s.AuthHandler(name))
 		}
 		if err != nil {
 			panic(fmt.Sprintf("could not add route: %v", err))
@@ -63,10 +71,10 @@ func (s *Server) buildRoutes() {
 	}
 
 	// Add callback handler
-	s.router.Handle(config.Path, s.AuthCallbackHandler())
+	s.router.Handle(s.config.Path, s.AuthCallbackHandler())
 
 	// Add a default handler
-	if config.DefaultAction == "allow" {
+	if s.config.DefaultAction == "allow" {
 		s.router.NewRoute().Handler(s.AllowHandler("default"))
 	} else {
 		s.router.NewRoute().Handler(s.AuthHandler("default"))
@@ -85,15 +93,15 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 	// Modify request
 	r.Method = r.Header.Get("X-Forwarded-Method")
 	r.Host = r.Header.Get("X-Forwarded-Host")
-	r.URL, _ = neturl.Parse(GetUriPath(r))
+	r.URL, _ = neturl.Parse(authentication.GetUriPath(r))
 
-	if config.AuthHost == "" || len(config.CookieDomains) > 0 || r.Host == config.AuthHost {
+	if s.config.AuthHost == "" || len(s.config.CookieDomains) > 0 || r.Host == s.config.AuthHost {
 		s.router.ServeHTTP(w, r)
 	} else {
 		// Redirect the client to the authHost.
 		url := r.URL
 		url.Scheme = r.Header.Get("X-Forwarded-Proto")
-		url.Host = config.AuthHost
+		url.Host = s.config.AuthHost
 		logger.Debugf("Redirect to %v", url.String())
 		http.Redirect(w, r, url.String(), 307)
 	}
@@ -114,14 +122,14 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		logger := s.logger(r, rule, "Authenticate request")
 
 		// Get auth cookie
-		c, err := r.Cookie(config.CookieName)
+		c, err := r.Cookie(s.config.CookieName)
 		if err != nil {
 			s.notAuthenticated(logger, w, r)
 			return
 		}
 
 		// Validate cookie
-		email, err := ValidateCookie(r, c)
+		email, err := s.authenticator.ValidateCookie(r, c)
 		if err != nil {
 			logger.Info(fmt.Sprintf("cookie validaton failure: %s", err.Error()))
 			s.notAuthenticated(logger, w, r)
@@ -129,7 +137,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Validate user
-		valid := ValidateEmail(email)
+		valid := s.authenticator.ValidateEmail(email)
 		if !valid {
 			logger.WithFields(logrus.Fields{
 				"email": email,
@@ -152,7 +160,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			return
 		}
 
-		if config.EnableRBAC && !s.authzIsBypassed(r) {
+		if s.config.EnableRBAC && !s.authzIsBypassed(r) {
 			kubeUserInfo := s.getModifiedUserInfo(email, groups)
 
 			logger.Debugf("authorizing user: %s, groups: %s", kubeUserInfo.Name, kubeUserInfo.Groups)
@@ -173,18 +181,18 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 
 		// Valid request
 		logger.Debugf("Allow request from %s", email)
-		for _, headerName := range config.EmailHeaderNames {
+		for _, headerName := range s.config.EmailHeaderNames {
 			w.Header().Set(headerName, email)
 		}
 
-		if config.EnableImpersonation {
+		if s.config.EnableImpersonation {
 			// Set impersonation headers
 			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s, groups: %s", email, groups))
-			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", config.ServiceAccountToken))
+			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", s.config.ServiceAccountToken))
 			w.Header().Set(impersonateUserHeader, email)
 			w.Header().Set(impersonateGroupHeader, "system:authenticated")
 			for _, group := range groups {
-				w.Header().Add(impersonateGroupHeader, fmt.Sprintf("%s%s", config.GroupClaimPrefix, group))
+				w.Header().Add(impersonateGroupHeader, fmt.Sprintf("%s%s", s.config.GroupClaimPrefix, group))
 			}
 		}
 		w.WriteHeader(200)
@@ -198,7 +206,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		logger := s.logger(r, "default", "Handling callback")
 
 		// Check for CSRF cookie
-		c, err := r.Cookie(config.CSRFCookieName)
+		c, err := r.Cookie(s.config.CSRFCookieName)
 		if err != nil {
 			logger.Warnf("Missing CSRF cookie: %v", err)
 			http.Error(w, "Not authorized", 401)
@@ -206,7 +214,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 
 		// Validate state
-		valid, redirect, err := ValidateCSRFCookie(r, c)
+		valid, redirect, err := authentication.ValidateCSRFCookie(r, c)
 		if !valid {
 			logger.Warnf("Error validating CSRF cookie: %v", err)
 			http.Error(w, "Not authorized", 401)
@@ -214,28 +222,28 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 
 		// Clear CSRF cookie
-		http.SetCookie(w, ClearCSRFCookie(r))
+		http.SetCookie(w, s.authenticator.ClearCSRFCookie(r))
 
-		provider := config.OIDCProvider
+		provider := s.config.OIDCProvider
 
 		// Mapping scope
 		scope := []string{}
-		if config.Scope != "" {
-			scope = []string{config.Scope}
+		if s.config.Scope != "" {
+			scope = []string{s.config.Scope}
 		} else {
 			scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
 		}
 
 		oauth2Config := oauth2.Config{
-			ClientID:     config.ClientId,
-			ClientSecret: config.ClientSecret,
-			RedirectURL:  redirectUri(r),
+			ClientID:     s.config.ClientId,
+			ClientSecret: s.config.ClientSecret,
+			RedirectURL:  s.authenticator.RedirectUri(r),
 			Endpoint:     provider.Endpoint(),
 			Scopes:       scope,
 		}
 
 		// Exchange code for token
-		oauth2Token, err := oauth2Config.Exchange(config.OIDCContext, r.URL.Query().Get("code"))
+		oauth2Token, err := oauth2Config.Exchange(s.config.OIDCContext, r.URL.Query().Get("code"))
 		if err != nil {
 			logger.Warnf("failed to exchange token: %v", err)
 			http.Error(w, "Bad Gateway", 502)
@@ -251,8 +259,8 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		}
 
 		// Parse and verify ID Token payload.
-		verifier := provider.Verifier(&oidc.Config{ClientID: config.ClientId})
-		idToken, err := verifier.Verify(config.OIDCContext, rawIDToken)
+		verifier := provider.Verifier(&oidc.Config{ClientID: s.config.ClientId})
+		idToken, err := verifier.Verify(s.config.OIDCContext, rawIDToken)
 		if err != nil {
 			logger.Warnf("failed to verify token: %v", err)
 			http.Error(w, "Bad Gateway", 502)
@@ -271,7 +279,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		email, ok := claims["email"]
 		if ok {
 			// Generate cookies
-			http.SetCookie(w, MakeIDCookie(r, email.(string)))
+			http.SetCookie(w, s.authenticator.MakeIDCookie(r, email.(string)))
 			logger.WithFields(logrus.Fields{
 				"user": claims["email"].(string),
 			}).Infof("Generated auth cookie")
@@ -285,21 +293,21 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			name = email.(string)
 		}
 
-		http.SetCookie(w, MakeNameCookie(r, name.(string)))
+		http.SetCookie(w, s.authenticator.MakeNameCookie(r, name.(string)))
 		logger.WithFields(logrus.Fields{
 			"name": name.(string),
 		}).Infof("Generated name cookie")
 
 		// Mapping groups
 		groups := []string{}
-		gInterface, ok := claims[config.GroupsAttributeName].([]interface{})
+		gInterface, ok := claims[s.config.GroupsAttributeName].([]interface{})
 		if ok {
 			groups = make([]string, len(gInterface))
 			for i, v := range gInterface {
 				groups[i] = v.(string)
 			}
 		} else {
-			logger.Errorf("failed to get groups claims session. GroupsAttributeName: %s", config.GroupsAttributeName)
+			logger.Errorf("failed to get groups claims session. GroupsAttributeName: %s", s.config.GroupsAttributeName)
 		}
 
 		logger.Printf("creating claims session with groups: %v", groups)
@@ -335,7 +343,7 @@ func (s *Server) notAuthenticated(logger *logrus.Entry, w http.ResponseWriter, r
 
 func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) {
 	// Error indicates no cookie, generate nonce
-	err, nonce := Nonce()
+	err, nonce := authentication.Nonce()
 	if err != nil {
 		logger.Errorf("Error generating nonce, %v", err)
 		http.Error(w, "Service unavailable", 503)
@@ -343,29 +351,31 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 	}
 
 	// Set the CSRF cookie
-	http.SetCookie(w, MakeCSRFCookie(r, nonce))
+	http.SetCookie(w, s.authenticator.MakeCSRFCookie(r, nonce))
 	logger.Debug("Set CSRF cookie and redirect to OIDC login")
 
 	// Mapping scope
 	scope := []string{}
-	if config.Scope != "" {
-		scope = []string{config.Scope}
+	if s.config.Scope != "" {
+		scope = []string{s.config.Scope}
 	} else {
 		scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
 	}
 
 	// clear existing claims session
-	s.userinfo.Clear(r, w)
+	if err = s.userinfo.Clear(r, w); err != nil {
+		logger.Errorf("error clearing session: %v", err)
+	}
 
 	oauth2Config := oauth2.Config{
-		ClientID:     config.ClientId,
-		ClientSecret: config.ClientSecret,
-		RedirectURL:  redirectUri(r),
-		Endpoint:     config.OIDCProvider.Endpoint(),
+		ClientID:     s.config.ClientId,
+		ClientSecret: s.config.ClientSecret,
+		RedirectURL:  s.authenticator.RedirectUri(r),
+		Endpoint:     s.config.OIDCProvider.Endpoint(),
 		Scopes:       scope,
 	}
 
-	state := fmt.Sprintf("%s:%s", nonce, returnUrl(r))
+	state := fmt.Sprintf("%s:%s", nonce, authentication.ReturnUrl(r))
 
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
 
@@ -396,7 +406,7 @@ func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
 }
 
 func (s *Server) authzIsBypassed(r *http.Request) bool {
-	for _, bypassURIPattern := range config.AuthZPassThrough {
+	for _, bypassURIPattern := range s.config.AuthZPassThrough {
 		if authorization.PathMatches(r.URL.Path, bypassURIPattern) {
 			s.log.Infof("authorization is disabled for %s", r.URL.Path)
 			return true
@@ -409,7 +419,7 @@ func (s *Server) authzIsBypassed(r *http.Request) bool {
 func (s *Server) getModifiedUserInfo(email string, groups []string) authorization.User {
 	g := []string{"system:authenticated"}
 	for _, group := range groups {
-		g = append(g, fmt.Sprintf("%s%s", config.GroupClaimPrefix, group))
+		g = append(g, fmt.Sprintf("%s%s", s.config.GroupClaimPrefix, group))
 	}
 	return authorization.User{
 		Name:   email,

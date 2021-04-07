@@ -2,6 +2,9 @@ package main
 
 import (
 	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
+	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
+	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
+	"github.com/mesosphere/traefik-forward-auth/internal/handlers"
 	kubernetes "github.com/mesosphere/traefik-forward-auth/internal/kubernetes"
 	"github.com/mesosphere/traefik-forward-auth/internal/storage"
 	"github.com/mesosphere/traefik-forward-auth/internal/storage/cluster"
@@ -10,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gorilla/sessions"
-	internal "github.com/mesosphere/traefik-forward-auth/internal"
 	logger "github.com/mesosphere/traefik-forward-auth/internal/log"
 	k8s "k8s.io/client-go/kubernetes"
 )
@@ -18,7 +20,7 @@ import (
 // Main
 func main() {
 	// Parse options
-	config := internal.NewGlobalConfig(os.Args[1:])
+	config := configuration.NewGlobalConfig(os.Args[1:])
 
 	// Setup logger
 	log := logger.NewDefaultLogger(config.LogLevel, config.LogFormat)
@@ -29,6 +31,7 @@ func main() {
 	// Query the OIDC provider
 	config.SetOidcProvider()
 
+	authenticator := authentication.NewAuthenticator(config)
 	// Get clientset for Authorizers
 	var clientset k8s.Interface
 	if config.EnableRBAC || config.EnableInClusterStorage {
@@ -57,7 +60,8 @@ func main() {
 			config.ClusterStoreNamespace,
 			string(config.Secret),
 			config.Lifetime,
-			time.Duration(config.ClusterStoreCacheTTL)*time.Second)
+			time.Duration(config.ClusterStoreCacheTTL)*time.Second,
+			authenticator)
 
 		gc := cluster.NewGC(clusterStorage, time.Minute, false, true)
 
@@ -66,7 +70,7 @@ func main() {
 		}
 	}
 	// Build server
-	server := internal.NewServer(userInfoStore, clientset)
+	server := handlers.NewServer(userInfoStore, clientset, config)
 
 	// Attach router to default server
 	http.HandleFunc("/", server.RootHandler)

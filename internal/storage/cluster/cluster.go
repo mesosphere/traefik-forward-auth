@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	tfa "github.com/mesosphere/traefik-forward-auth/internal"
 	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
 	"github.com/mesosphere/traefik-forward-auth/internal/storage"
 )
@@ -45,16 +45,23 @@ type ClusterStorage struct {
 
 	ticker time.Ticker
 
-	cache *UserInfoCache
+	cache         *UserInfoCache
+	authenticator *authentication.Authenticator
 }
 
-func NewClusterStore(client kubernetes.Interface, namespace, hmacSecret string, expiry, cacheTTL time.Duration) *ClusterStorage {
+func NewClusterStore(
+	client kubernetes.Interface,
+	namespace,
+	hmacSecret string,
+	expiry, cacheTTL time.Duration,
+	authenticator *authentication.Authenticator) *ClusterStorage {
 	cs := &ClusterStorage{
-		Client:     client,
-		Namespace:  namespace,
-		Lifetime:   expiry,
-		HmacSecret: []byte(hmacSecret),
-		cache:      NewUserInfoCache(cacheTTL),
+		Client:        client,
+		Namespace:     namespace,
+		Lifetime:      expiry,
+		HmacSecret:    []byte(hmacSecret),
+		cache:         NewUserInfoCache(cacheTTL),
+		authenticator: authenticator,
 	}
 	return cs
 }
@@ -92,7 +99,7 @@ func (cs *ClusterStorage) createClaimsIDCookie(claimsId string, r *http.Request,
 		Name:     storage.ClaimsIdCookie,
 		Value:    cookieData,
 		Path:     "/",
-		Domain:   tfa.GetCookieDomain(r),
+		Domain:   cs.authenticator.GetCookieDomain(r),
 		Expires:  time.Now().Local().Add(cs.Lifetime),
 		Secure:   true,
 		HttpOnly: true,
@@ -105,7 +112,7 @@ func (cs *ClusterStorage) clearClaimsIDCookie(r *http.Request, w http.ResponseWr
 		Name:     storage.ClaimsIdCookie,
 		Value:    "",
 		Path:     "/",
-		Domain:   tfa.GetCookieDomain(r),
+		Domain:   cs.authenticator.GetCookieDomain(r),
 		Expires:  time.Now().Local().Add(time.Hour * -1),
 		Secure:   true,
 		HttpOnly: true,

@@ -7,13 +7,15 @@ import (
 
 	"github.com/gorilla/sessions"
 
-	tfa "github.com/mesosphere/traefik-forward-auth/internal"
 	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
+	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
 )
 
 type GorillaUserInfoStore struct {
 	SessionStore sessions.Store
 	SessionName  string
+
+	auth *authentication.Authenticator
 }
 
 func (c *GorillaUserInfoStore) Get(r *http.Request) (*v1alpha1.UserInfo, error) {
@@ -50,7 +52,7 @@ func (c *GorillaUserInfoStore) Save(r *http.Request, w http.ResponseWriter, info
 	}
 
 	session.Values[UserInfoKey] = data
-	session.Options.Domain = tfa.GetCookieDomain(r)
+	session.Options.Domain = c.auth.GetCookieDomain(r)
 	if err := session.Save(r, w); err != nil {
 		return fmt.Errorf("error saving session: %w", err)
 	}

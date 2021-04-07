@@ -1,4 +1,4 @@
-package tfa
+package configuration
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mesosphere/traefik-forward-auth/internal/util"
 	"io"
 	"io/ioutil"
 	"os"
@@ -37,7 +38,7 @@ type Config struct {
 	Scope                   string               `long:"scope" env:"SCOPE" description:"Define scope"`
 	AuthHost                string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
 	Config                  func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
-	CookieDomains           []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
+	CookieDomains           []util.CookieDomain  `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
 	InsecureCookie          bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
 	CookieName              string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
 	EmailHeaderNames        CommaSeparatedList   `long:"email-header-names" env:"EMAIL_HEADER_NAMES" default:"X-Forwarded-User" description:"Response headers containing the authenticated user's username"`
@@ -270,7 +271,7 @@ func NewRule() *Rule {
 	}
 }
 
-func (r *Rule) formattedRule() string {
+func (r *Rule) FormattedRule() string {
 	// Traefik implements their own "Host" matcher and then offers "HostRegexp"
 	// to invoke the mux "Host" matcher. This ensures the mux version is used
 	return strings.ReplaceAll(r.Rule, "Host(", "HostRegexp(")
