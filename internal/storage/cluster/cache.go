@@ -1,9 +1,10 @@
 package cluster
 
 import (
-	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
 	"sync"
 	"time"
+
+	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
 )
 
 type UserInfoRecord struct {
