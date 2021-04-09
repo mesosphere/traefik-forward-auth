@@ -229,11 +229,12 @@ func (a *Authenticator) matchCookieDomains(domain string) (bool, string) {
 	// Remove port
 	p := strings.Split(domain, ":")
 
-	if a.config != nil {
-		for _, d := range a.config.CookieDomains {
-			if d.Match(p[0]) {
-				return true, d.Domain
-			}
+	if a.config == nil {
+		return false, p[0]
+	}
+	for _, d := range a.config.CookieDomains {
+		if d.Match(p[0]) {
+			return true, d.Domain
 		}
 	}
 	return false, p[0]
