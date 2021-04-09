@@ -36,7 +36,7 @@ func (gc *GarbageCollector) Collect() {
 	gc.logDebug("collector starting")
 	err := gc.cs.deleteExpiredSecrets()
 	if err != nil {
-		gc.logDebug("error deleting expired secrets")
+		gc.logDebug(fmt.Sprintf("error deleting expired secrets: %v", err))
 	}
 	gc.logDebug("collector finished")
 }
