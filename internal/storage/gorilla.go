@@ -15,7 +15,7 @@ type GorillaUserInfoStore struct {
 	SessionStore sessions.Store
 	SessionName  string
 
-	auth *authentication.Authenticator
+	Auth *authentication.Authenticator
 }
 
 func (c *GorillaUserInfoStore) Get(r *http.Request) (*v1alpha1.UserInfo, error) {
@@ -32,7 +32,7 @@ func (c *GorillaUserInfoStore) Get(r *http.Request) (*v1alpha1.UserInfo, error) 
 		return nil, nil
 	}
 
-	var userinfo *v1alpha1.UserInfo
+	userinfo := &v1alpha1.UserInfo{}
 	if err := json.Unmarshal(data.([]byte), userinfo); err != nil {
 		return nil, fmt.Errorf("error parsing userinfo: %w", err)
 	}
@@ -53,7 +53,7 @@ func (c *GorillaUserInfoStore) Save(r *http.Request, w http.ResponseWriter, info
 	}
 
 	session.Values[UserInfoKey] = data
-	session.Options.Domain = c.auth.GetCookieDomain(r)
+	session.Options.Domain = c.Auth.GetCookieDomain(r)
 	if err := session.Save(r, w); err != nil {
 		return fmt.Errorf("error saving session: %w", err)
 	}

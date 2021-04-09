@@ -53,6 +53,7 @@ func main() {
 		userInfoStore = &storage.GorillaUserInfoStore{
 			SessionStore: cookieStore,
 			SessionName:  config.ClaimsSessionName,
+			Auth:         authenticator,
 		}
 	} else {
 		userInfoStore = cluster.NewClusterStore(
