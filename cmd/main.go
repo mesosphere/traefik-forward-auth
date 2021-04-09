@@ -55,7 +55,7 @@ func main() {
 			SessionName:  config.ClaimsSessionName,
 		}
 	} else {
-		clusterStorage := cluster.NewClusterStore(
+		userInfoStore = cluster.NewClusterStore(
 			clientset,
 			config.ClusterStoreNamespace,
 			string(config.Secret),
@@ -63,7 +63,7 @@ func main() {
 			time.Duration(config.ClusterStoreCacheTTL)*time.Second,
 			authenticator)
 
-		gc := cluster.NewGC(clusterStorage, time.Minute, false, true)
+		gc := cluster.NewGC(userInfoStore.(*cluster.ClusterStorage), time.Minute, false, true)
 
 		if err := gc.Start(); err != nil {
 			log.Fatalf("error starting GC process: %v", err)
