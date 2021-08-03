@@ -372,6 +372,21 @@ func TestAuthzDisabled(t *testing.T) {
 	assert.Equal(s.authzIsBypassed(r), true)
 }
 
+func TestCleanupConnection(t *testing.T) {
+	assert := assert.New(t)
+	tests := map[string]string{
+		"":                                 "",
+		"Authorization":                    "",
+		"keep-alive":                       "keep-alive",
+		"keep-alive, AUTHORIZATION":        "keep-alive",
+		"Authorization, Other":             "Other",
+		"keep-alive, authorization, Other": "keep-alive, Other",
+	}
+	for original, expected := range tests {
+		assert.Equal(expected, cleanupConnectionHeader(original))
+	}
+}
+
 /**
  * Utilities
  */
