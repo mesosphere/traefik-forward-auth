@@ -2,12 +2,13 @@ package handlers
 
 import (
 	"fmt"
-	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
-	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
-	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
 	"net/http"
 	neturl "net/url"
 	"strings"
+
+	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
+	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
+	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
 
 	"github.com/containous/traefik/pkg/rules"
 	"github.com/coreos/go-oidc"
@@ -194,9 +195,32 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			for _, group := range groups {
 				w.Header().Add(impersonateGroupHeader, fmt.Sprintf("%s%s", s.config.GroupClaimPrefix, group))
 			}
+			w.Header().Set("Connection", cleanupConnectionHeader(w.Header().Get("Connection")))
 		}
 		w.WriteHeader(200)
 	}
+}
+
+var removeHeaders = map[string]bool{
+	strings.ToLower("Authorization"):        true,
+	strings.ToLower(impersonateUserHeader):  true,
+	strings.ToLower(impersonateGroupHeader): true,
+}
+
+// Traefik correctly removes any headers listed in the Connection header, but
+// because it removes headers after forward auth has run, a specially crafted
+// request can forward to the backend with the forward auth headers removed.
+// Remove forward auth headers from the Connection header to ensure that they
+// get passed to the backend.
+func cleanupConnectionHeader(original string) string {
+	headers := strings.Split(original, ",")
+	passThrough := make([]string, 0, len(headers))
+	for _, header := range headers {
+		if remove := removeHeaders[strings.ToLower(strings.TrimSpace(header))]; !remove {
+			passThrough = append(passThrough, header)
+		}
+	}
+	return strings.TrimSpace(strings.Join(passThrough, ","))
 }
 
 // Handle auth callback
@@ -227,7 +251,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		provider := s.config.OIDCProvider
 
 		// Mapping scope
-		scope := []string{}
+		var scope []string
 		if s.config.Scope != "" {
 			scope = []string{s.config.Scope}
 		} else {
@@ -355,7 +379,7 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 	logger.Debug("Set CSRF cookie and redirect to OIDC login")
 
 	// Mapping scope
-	scope := []string{}
+	var scope []string
 	if s.config.Scope != "" {
 		scope = []string{s.config.Scope}
 	} else {
