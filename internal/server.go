@@ -244,7 +244,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Check for CSRF cookie
 		c, err := r.Cookie(s.config.CSRFCookieName)
 		if err != nil {
-			logger.Warnf("missing CSRF cookie: %v", err)
+			logger.Errorf("missing CSRF cookie: %v", err)
 			http.Error(w, "Not authorized", 401)
 			return
 		}
@@ -252,7 +252,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Validate state
 		valid, redirect, err := validateCSRFCookie(r, c)
 		if !valid {
-			logger.Warnf("error validating CSRF cookie: %v", err)
+			logger.Errorf("error validating CSRF cookie: %v", err)
 			http.Error(w, "Not authorized", 401)
 			return
 		}
@@ -281,7 +281,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Exchange code for token
 		oauth2Token, err := oauth2Config.Exchange(s.config.OIDCContext, r.URL.Query().Get("code"))
 		if err != nil {
-			logger.Warnf("failed to exchange token: %v", err)
+			logger.Errorf("failed to exchange token: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -289,7 +289,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Extract the ID Token from OAuth2 token.
 		rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 		if !ok {
-			logger.Warnf("missing ID token: %v", err)
+			logger.Error("missing ID token")
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -305,7 +305,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		verifier := provider.Verifier(&oidc.Config{ClientID: s.config.ClientID})
 		idToken, err := verifier.Verify(s.config.OIDCContext, rawIDToken)
 		if err != nil {
-			logger.Warnf("failed to verify token: %v", err)
+			logger.Errorf("failed to verify token: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -313,7 +313,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Extract custom claims
 		var claims map[string]interface{}
 		if err := idToken.Claims(&claims); err != nil {
-			logger.Warnf("failed to extract claims: %v", err)
+			logger.Errorf("failed to extract claims: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -322,7 +322,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		if ok {
 			sess.EMail = email.(string)
 		} else {
-			logger.Errorf("no email claim present in the ID token")
+			logger.Warn("no email claim present in the ID token")
 		}
 
 		// If name in null, empty or whitespace, use email address for name
@@ -334,7 +334,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		http.SetCookie(w, makeNameCookie(r, s.config, name.(string)))
 		logger.WithFields(logrus.Fields{
 			"name": name.(string),
-		}).Infof("generated name cookie")
+		}).Info("generated name cookie")
 
 		// Mapping groups
 		groupsClaim, ok := claims[s.config.GroupsAttributeName].([]interface{})
@@ -343,13 +343,13 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 				sess.Groups = append(sess.Groups, g.(string))
 			}
 		} else {
-			logger.Errorf("failed to get groups claim from the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
+			logger.Warnf("failed to get groups claim from the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
 		}
 
 		// Send final session cookie
-		c = makeSessionCookie(r, s.config, sess)
-		if c == nil {
-			logger.Errorln("error generating secure session cookie")
+		c, err = makeSessionCookie(r, s.config, sess)
+		if err != nil {
+			logger.Errorf("error generating secure session cookie: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
