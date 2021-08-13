@@ -101,7 +101,7 @@ func (a *Authenticator) useAuthDomain(r *http.Request) (bool, string) {
 // Cookie methods
 
 // MakeIDCookie creates an auth cookie
-func (a *Authenticator) MakeIDCookie(r *http.Request, email string, token string) *http.Cookie {
+func (a *Authenticator) MakeIDCookie(r *http.Request, email string, token string) (*http.Cookie, error) {
 	expires := a.config.CookieExpiry()
 	data := &ID{
 		Email: email,
@@ -110,10 +110,10 @@ func (a *Authenticator) MakeIDCookie(r *http.Request, email string, token string
 
 	encoded, err := a.secureCookie.Encode(a.config.CookieName, data)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     a.config.CookieName,
 		Value:    encoded,
 		Path:     "/",
@@ -122,6 +122,8 @@ func (a *Authenticator) MakeIDCookie(r *http.Request, email string, token string
 		Secure:   !a.config.InsecureCookie,
 		Expires:  expires,
 	}
+
+	return cookie, nil
 }
 
 // MakeNameCookie creates a name cookie

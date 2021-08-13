@@ -105,7 +105,8 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 	req = newDefaultHTTPRequest("/foo")
 	// NOTE(jkoelker) `notAuthenticated` will redirect if it thinks the request is from a browser
 	req.Header.Set("Accept", "application/json")
-	c := a.MakeIDCookie(req, "test@example.com", "")
+	c, err := a.MakeIDCookie(req, "test@example.com", "")
+	assert.Nil(err)
 	config = newTestConfig(testAuthKey2, testEncKey2) // new auth & encryption key!
 
 	config.AuthHost = ""
@@ -115,7 +116,8 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 	// Should validate email
 	req = newDefaultHTTPRequest("/foo")
 	a = authentication.NewAuthenticator(config)
-	c = a.MakeIDCookie(req, "test@example.com", "")
+	c, err = a.MakeIDCookie(req, "test@example.com", "")
+	assert.Nil(err)
 	config.Domains = []string{"test.com"}
 
 	res, _ = doHttpRequest(req, c, config)
@@ -132,7 +134,8 @@ func TestServerAuthHandlerExpired(t *testing.T) {
 
 	// Should redirect expired cookie
 	req := newDefaultHTTPRequest("/foo")
-	c := a.MakeIDCookie(req, "test@example.com", "")
+	c, err := a.MakeIDCookie(req, "test@example.com", "")
+	assert.Nil(err)
 	res, _ := doHttpRequest(req, c, config)
 	assert.Equal(307, res.StatusCode, "request with expired cookie should be redirected")
 
@@ -151,7 +154,8 @@ func TestServerAuthHandlerValid(t *testing.T) {
 
 	// Should allow valid request email
 	req := newDefaultHTTPRequest("/foo")
-	c := a.MakeIDCookie(req, "test@example.com", "")
+	c, err := a.MakeIDCookie(req, "test@example.com", "")
+	assert.Nil(err)
 
 	config.Domains = []string{}
 
