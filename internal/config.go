@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -80,6 +81,10 @@ func NewConfig(args []string) (*Config, error) {
 	}
 
 	err := c.parseFlags(args)
+
+	// Set the client context explicitly in order to use proxy configuration from environment(if any)
+	// See https://github.com/coreos/go-oidc/blob/8d771559cf6e5111c9b9159810d0e4538e7cdc82/oidc.go#L43-L53
+	c.OIDCContext = oidc.ClientContext(context.Background(), &http.Client{})
 
 	log = internallog.NewDefaultLogger(c.LogLevel, c.LogFormat)
 	return &c, err
@@ -230,8 +235,7 @@ func (c *Config) Validate() {
 // LoadOIDCProviderConfiguration loads the configuration of OpenID Connect provider
 func (c *Config) LoadOIDCProviderConfiguration() error {
 	// Fetch OIDC Provider configuration
-	c.OIDCContext = context.Background()
-	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderURI)
+	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderUri)
 	if err != nil {
 		return fmt.Errorf("failed to get provider configuration for %s: %v (hint: make sure %s is accessible from the cluster)",
 			c.ProviderURI, err, c.ProviderURI)
