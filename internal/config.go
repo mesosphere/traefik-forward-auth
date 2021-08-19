@@ -235,7 +235,7 @@ func (c *Config) Validate() {
 // LoadOIDCProviderConfiguration loads the configuration of OpenID Connect provider
 func (c *Config) LoadOIDCProviderConfiguration() error {
 	// Fetch OIDC Provider configuration
-	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderUri)
+	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderURI)
 	if err != nil {
 		return fmt.Errorf("failed to get provider configuration for %s: %v (hint: make sure %s is accessible from the cluster)",
 			c.ProviderURI, err, c.ProviderURI)
