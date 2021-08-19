@@ -118,15 +118,15 @@ func useAuthDomain(r *http.Request, authHost string, cookieDomains []CookieDomai
 // Cookie methods
 
 // makeSessionCookie creates an authenticated and encrypted cookie holding session data
-func makeSessionCookie(r *http.Request, config *Config, data sessionCookie) *http.Cookie {
+func makeSessionCookie(r *http.Request, config *Config, data sessionCookie) (*http.Cookie, error) {
 	sc := securecookie.New([]byte(config.SecretString), []byte(config.EncryptionKeyString)).MaxAge(config.CookieMaxAge())
 
 	encoded, err := sc.Encode(config.CookieName, data)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     config.CookieName,
 		Value:    encoded,
 		Path:     "/",
@@ -135,6 +135,8 @@ func makeSessionCookie(r *http.Request, config *Config, data sessionCookie) *htt
 		Secure:   !config.InsecureCookie,
 		Expires:  config.CookieExpiry(),
 	}
+
+	return cookie, nil
 }
 
 // makeNameCookie creates a name cookie

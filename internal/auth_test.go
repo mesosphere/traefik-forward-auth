@@ -50,7 +50,8 @@ func TestAuthValidateCookie(t *testing.T) {
 
 	// Should catch expired
 	config.Lifetime = time.Second * time.Duration(-1)
-	c = makeSessionCookie(r, config, sessionCookie{EMail: "test@test.com"})
+	c, err = makeSessionCookie(r, config, sessionCookie{EMail: "test@test.com"})
+	assert.Nil(err)
 	_, err = validateSessionCookie(r, c, config)
 	if assert.Error(err) {
 		assert.Equal("securecookie: expired timestamp", err.Error())
@@ -58,7 +59,8 @@ func TestAuthValidateCookie(t *testing.T) {
 
 	// Should accept valid cookie
 	config.Lifetime = time.Second * time.Duration(10)
-	c = makeSessionCookie(r, config, sessionCookie{EMail: "test@test.com"})
+	c, err = makeSessionCookie(r, config, sessionCookie{EMail: "test@test.com"})
+	assert.Nil(err)
 	sess, err := validateSessionCookie(r, c, config)
 	assert.Nil(err, "valid request should not return an error")
 	assert.Equal("test@test.com", sess.EMail, "valid request should return user email")
@@ -110,7 +112,8 @@ func TestAuthMakeCookie(t *testing.T) {
 	r, _ := http.NewRequest("GET", "http://app.example.com", nil)
 	r.Header.Add("X-Forwarded-Host", "app.example.com")
 
-	c := makeSessionCookie(r, config, sessionCookie{EMail: "test@example.com"})
+	c, err := makeSessionCookie(r, config, sessionCookie{EMail: "test@example.com"})
+	assert.Nil(err)
 	assert.Equal("_forward_auth", c.Name)
 	assert.Greater(len(c.Value), 18, "encoded securecookie should be longer")
 	_, err := validateSessionCookie(r, c, config)
@@ -124,7 +127,8 @@ func TestAuthMakeCookie(t *testing.T) {
 
 	config.CookieName = "testname"
 	config.InsecureCookie = true
-	c = makeSessionCookie(r, config, sessionCookie{EMail: "test@example.com"})
+	c, err = makeSessionCookie(r, config, sessionCookie{EMail: "test@example.com"})
+	assert.Nil(err)
 	assert.Equal("testname", c.Name)
 	assert.False(c.Secure)
 }

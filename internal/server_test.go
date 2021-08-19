@@ -39,7 +39,8 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 
 	// Should catch invalid cookie
 	req = newDefaultHTTPRequest("/foo")
-	c := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	c, err := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	assert.Nil(err)
 	config = newTestConfig(testAuthKey2, testEncKey2) // new auth & encryption key!
 
 	config.AuthHost = ""
@@ -48,7 +49,8 @@ func TestServerAuthHandlerInvalid(t *testing.T) {
 
 	// Should validate email
 	req = newDefaultHTTPRequest("/foo")
-	c = makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	c, err = makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	assert.Nil(err)
 	config.Domains = []string{"test.com"}
 
 	res, _ = doHTTPRequest(config, req, c)
@@ -64,7 +66,8 @@ func TestServerAuthHandlerExpired(t *testing.T) {
 
 	// Should redirect expired cookie
 	req := newDefaultHTTPRequest("/foo")
-	c := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	c, err := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	assert.Nil(err)
 	res, _ := doHTTPRequest(config, req, c)
 	assert.Equal(307, res.StatusCode, "request with expired cookie should be redirected")
 
@@ -81,7 +84,8 @@ func TestServerAuthHandlerValid(t *testing.T) {
 	config.Lifetime = time.Minute * time.Duration(config.LifetimeString)
 	// Should allow valid request email
 	req := newDefaultHTTPRequest("/foo")
-	c := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	c, err := makeSessionCookie(req, config, sessionCookie{EMail: "test@example.com"})
+	assert.Nil(err)
 
 	config.Domains = []string{}
 
