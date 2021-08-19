@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/mesosphere/traefik-forward-auth/internal/util"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -20,6 +20,7 @@ import (
 	"github.com/thomseddon/go-flags"
 
 	internallog "github.com/mesosphere/traefik-forward-auth/internal/log"
+	"github.com/mesosphere/traefik-forward-auth/internal/util"
 )
 
 var (
@@ -92,6 +93,10 @@ func NewConfig(args []string) (*Config, error) {
 	}
 
 	err := c.parseFlags(args)
+
+	// Set the client context explicitly in order to use proxy configuration from environment(if any)
+	// See https://github.com/coreos/go-oidc/blob/8d771559cf6e5111c9b9159810d0e4538e7cdc82/oidc.go#L43-L53
+	c.OIDCContext = oidc.ClientContext(context.Background(), &http.Client{})
 
 	log = internallog.NewDefaultLogger(c.LogLevel, c.LogFormat)
 	return &c, err
@@ -247,7 +252,6 @@ func (c *Config) Validate() {
 
 func (c *Config) SetOidcProvider() {
 	// Fetch OIDC Provider configuration
-	c.OIDCContext = context.Background()
 	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderUri)
 	if err != nil {
 		log.Fatalf("failed to get provider configuration for %s: %v (hint: make sure %s is accessible from the cluster)", c.ProviderUri, err, c.ProviderUri)
