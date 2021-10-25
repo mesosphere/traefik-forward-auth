@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/mesosphere/traefik-forward-auth/internal/features"
 )
 
 var (
@@ -118,9 +120,9 @@ func URLMatchesRegexp(url, regex string) bool {
 
 // URLMatchesWildcardPattern returns true if the URL matches the pattern containing optional wildcard '*' characters
 func URLMatchesWildcardPattern(url, pattern string) bool {
-	// original implementation:
-	// return pattern == url ||
-	//	 (strings.HasSuffix(pattern, "*") && strings.HasPrefix(url, strings.TrimRight(pattern, "*")))
-
-	return globalRECache.MatchString(url, pattern, true)
+	if features.V3URLPatternMatchingEnabled() {
+		return globalRECache.MatchString(url, pattern, true)
+	} else {
+		return pattern == url || (strings.HasSuffix(pattern, "*") && strings.HasPrefix(url, strings.TrimRight(pattern, "*")))
+	}
 }
