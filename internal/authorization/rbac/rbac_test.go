@@ -1,7 +1,6 @@
 package rbac
 
 import (
-	"github.com/mesosphere/traefik-forward-auth/internal/features"
 	"net/url"
 	"testing"
 
@@ -13,6 +12,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/mesosphere/traefik-forward-auth/internal/authorization"
+	"github.com/mesosphere/traefik-forward-auth/internal/features"
 )
 
 const (
