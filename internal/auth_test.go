@@ -116,7 +116,7 @@ func TestAuthMakeCookie(t *testing.T) {
 	assert.Nil(err)
 	assert.Equal("_forward_auth", c.Name)
 	assert.Greater(len(c.Value), 18, "encoded securecookie should be longer")
-	_, err := validateSessionCookie(r, c, config)
+	_, err = validateSessionCookie(r, c, config)
 	assert.Nil(err, "should generate valid cookie")
 	assert.Equal("/", c.Path)
 	assert.Equal("app.example.com", c.Domain)

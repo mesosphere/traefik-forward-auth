@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mesosphere/traefik-forward-auth/internal/features"
 )
 
 func TestWildcardMatches(t *testing.T) {
@@ -28,7 +30,7 @@ func TestWildcardMatches(t *testing.T) {
 		{pattern: "/ops/portal/grafana/**", url: "/ops/portal/grafana/public/img/fav32.png", matches: true},
 		{pattern: "/ops/portal/grafana/**", url: "/ops/portal/grafana/public/build/runtime.3932bda029d2299a9d96.js", matches: true},
 	}
-
+	features.EnableV3URLPatternMatchin()
 	for _, c := range testCases {
 		if !assert.Equal(t, c.matches, URLMatchesWildcardPattern(c.url, c.pattern)) {
 			t.Logf("URLMatchesWildcardPattern(%v, %v) != %v", c.url, c.pattern, c.matches)
@@ -74,6 +76,29 @@ func TestRegexpMatches(t *testing.T) {
 		{pattern: `^https?://[^/]+/`, url: "https://www.google.com/", matches: true},
 	}
 
+	features.EnableV3URLPatternMatchin()
+	for _, c := range testCases {
+		if !assert.Equal(t, c.matches, URLMatchesRegexp(c.url, c.pattern)) {
+			t.Logf("URLMatchesRegexp(%v, %v) != %v", c.url, c.pattern, c.matches)
+		}
+	}
+}
+
+func TestOldPreV3Matching(t *testing.T) {
+	type test struct {
+		pattern string
+		url     string
+		matches bool
+	}
+
+	var testCases = []test{
+		{pattern: ``, url: "", matches: false},
+		{pattern: ``, url: "/", matches: false},
+		{pattern: `/`, url: "", matches: false},
+		{pattern: `/`, url: "/", matches: true},
+		{pattern: `/admin/*`, url: "/admin/sub1/sub2/index.html", matches: true},
+		{pattern: `/admin'`, url: "/admin/sub1/sub2/index.html", matches: false},
+	}
 	for _, c := range testCases {
 		if !assert.Equal(t, c.matches, URLMatchesRegexp(c.url, c.pattern)) {
 			t.Logf("URLMatchesRegexp(%v, %v) != %v", c.url, c.pattern, c.matches)
