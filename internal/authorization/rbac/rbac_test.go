@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/mesosphere/traefik-forward-auth/internal/authorization"
+	"github.com/mesosphere/traefik-forward-auth/internal/features"
 )
 
 const (
@@ -318,4 +319,8 @@ func TestRBACAuthorizer_AuthorizePatternTypes(t *testing.T) {
 			t.Logf("Authorize(%v, %v, %v) != %v", test.user, test.verb, test.url, test.should)
 		}
 	}
+}
+
+func init() {
+	features.EnableV3URLPatternMatchin()
 }
