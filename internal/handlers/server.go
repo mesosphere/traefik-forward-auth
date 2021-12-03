@@ -10,10 +10,10 @@ import (
 	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
 	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
 
-	"github.com/containous/traefik/pkg/rules"
 	"github.com/coreos/go-oidc"
 	"github.com/mesosphere/traefik-forward-auth/internal/authorization/rbac"
 	"github.com/sirupsen/logrus"
+	"github.com/traefik/traefik/v2/pkg/rules"
 	"golang.org/x/oauth2"
 	"k8s.io/client-go/kubernetes"
 
