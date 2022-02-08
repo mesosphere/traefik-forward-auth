@@ -16,6 +16,7 @@ require (
 	github.com/googleapis/gnostic v0.3.1 // indirect
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/sessions v1.2.0
+	github.com/gorilla/securecookie v1.1.1
 	github.com/gravitational/trace v0.0.0-20190409171327-f30095ced5ff // indirect
 	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/json-iterator/go v1.1.8 // indirect
