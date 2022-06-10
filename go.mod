@@ -15,8 +15,8 @@ require (
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/googleapis/gnostic v0.3.1 // indirect
 	github.com/gorilla/context v1.1.1 // indirect
-	github.com/gorilla/sessions v1.2.0
 	github.com/gorilla/securecookie v1.1.1
+	github.com/gorilla/sessions v1.2.0
 	github.com/gravitational/trace v0.0.0-20190409171327-f30095ced5ff // indirect
 	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/json-iterator/go v1.1.8 // indirect
@@ -38,7 +38,7 @@ require (
 	golang.org/x/sys v0.0.0-20190826190057-c7b8b68b1456 // indirect
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
-	gopkg.in/yaml.v2 v2.2.4
+	gopkg.in/yaml.v2 v2.2.8
 	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.17.0
 	k8s.io/apimachinery v0.17.0
