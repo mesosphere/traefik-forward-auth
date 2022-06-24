@@ -100,7 +100,14 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 	// Modify request
 	r.Method = r.Header.Get("X-Forwarded-Method")
 	r.Host = r.Header.Get("X-Forwarded-Host")
-	r.URL, _ = neturl.Parse(authentication.GetRequestURI(r))
+	// When the traefik-forward-auth server is behind an IngressRoute, the
+	// X-Forwarded-Uri may not be set. If this is the case,
+	// authentication.GetRequestURI will return a path of "/" which strips
+	// off the "/_oauth" path before it can be handled on callback. If this
+	// header is not set or is empty, then do not change the URL.
+	if r.Header.Get("X-Forwarded-Uri") != "" {
+		r.URL, _ = neturl.Parse(authentication.GetRequestURI(r))
+	}
 
 	if s.config.AuthHost == "" || len(s.config.CookieDomains) > 0 || r.Host == s.config.AuthHost {
 		s.router.ServeHTTP(w, r)
