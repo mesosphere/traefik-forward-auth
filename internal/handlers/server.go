@@ -461,7 +461,11 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 		Scopes:       scope,
 	}
 
-	state := fmt.Sprintf("%s:%s", nonce, authentication.GetRequestURL(r))
+	// QueryEscape the URL of the original URL in the query parameter
+	// because if it contains a "&" character, it will be parsed as another
+	// query parameter, losing part of the query when redirecting back to
+	// the original URL.
+	state := fmt.Sprintf("%s:%s", nonce, neturl.QueryEscape(authentication.GetRequestURL(r)))
 
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
 
