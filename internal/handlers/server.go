@@ -212,6 +212,19 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			w.Header().Set(headerName, id.Email)
 		}
 
+		// Map extra claims to headers
+		extraClaims, err := s.getExtraClaimsFromSession(r)
+		if err != nil {
+			logger.Errorf("error getting extra claims from session: %v", err)
+			s.notAuthenticated(logger, w, r)
+			return
+		}
+
+		for k, v := range extraClaims {
+			logger.Debugf("Setting header %s to %s", k, v)
+			w.Header().Set(k, v)
+		}
+
 		if s.config.EnableImpersonation {
 			// Set impersonation headers
 			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s, groups: %s", id.Email, groups))
@@ -375,10 +388,23 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			logger.Warnf("failed to get groups claim from the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
 		}
 
+		// Save extra claims
+		extraClaims := make(map[string]string)
+		for header_name, claim_name := range s.config.ExtraClaims {
+			claim_value, ok := claims[claim_name]
+			if !ok || (ok && strings.TrimSpace(claim_name) == "") {
+				logger.Warnf("failed to get extra claim from the ID token (ClaimName: %s)", claim_name)
+				continue
+			}
+
+			extraClaims[header_name] = claim_value.(string)
+		}
+
 		if err := s.userinfo.Save(r, w, &v1alpha1.UserInfo{
-			Username: name.(string),
-			Email:    email.(string),
-			Groups:   groups,
+			Username:    name.(string),
+			Email:       email.(string),
+			Groups:      groups,
+			ExtraClaims: extraClaims,
 		}); err != nil {
 			logger.Errorf("error saving session: %v", err)
 			http.Error(w, "Bad Gateway", 502)
@@ -491,6 +517,15 @@ func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
 		return nil, err
 	}
 	return userInfo.Groups, nil
+}
+
+// getExtraClaimsFromSession returns the extra claims present in the session
+func (s *Server) getExtraClaimsFromSession(r *http.Request) (map[string]string, error) {
+	userInfo, err := s.userinfo.Get(r)
+	if err != nil {
+		return nil, err
+	}
+	return userInfo.ExtraClaims, nil
 }
 
 // authzIsBypassed returns true if the request matches a bypass URI pattern
