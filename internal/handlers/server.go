@@ -163,13 +163,14 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Authorize user
-		groups, err := s.getGroupsFromSession(r)
+		session, err := s.getSession(r)
 		if err != nil {
-			logger.Errorf("error getting groups from session: %v", err)
+			logger.Errorf("error getting session: %v", err)
 			s.notAuthenticated(logger, w, r)
 			return
 		}
 
+		groups := session.Groups
 		if groups == nil {
 			logger.Info("groups session data is missing, re-authenticating")
 			s.notAuthenticated(logger, w, r)
@@ -213,14 +214,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Map extra claims to headers
-		extraClaims, err := s.getExtraClaimsFromSession(r)
-		if err != nil {
-			logger.Errorf("error getting extra claims from session: %v", err)
-			s.notAuthenticated(logger, w, r)
-			return
-		}
-
-		for k, v := range extraClaims {
+		for k, v := range session.ExtraClaims {
 			logger.Debugf("Setting header %s to %s", k, v)
 			w.Header().Set(k, v)
 		}
@@ -510,22 +504,9 @@ func (s *Server) logger(r *http.Request, rule, msg string) *logrus.Entry {
 	return logger
 }
 
-// getGroupsFromSession returns list of groups present in the session
-func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
-	userInfo, err := s.userinfo.Get(r)
-	if err != nil {
-		return nil, err
-	}
-	return userInfo.Groups, nil
-}
-
-// getExtraClaimsFromSession returns the extra claims present in the session
-func (s *Server) getExtraClaimsFromSession(r *http.Request) (map[string]string, error) {
-	userInfo, err := s.userinfo.Get(r)
-	if err != nil {
-		return nil, err
-	}
-	return userInfo.ExtraClaims, nil
+// getSession returns the current session containing username, email, groups and extra claims
+func (s *Server) getSession(r *http.Request) (*v1alpha1.UserInfo, error) {
+	return s.userinfo.Get(r)
 }
 
 // authzIsBypassed returns true if the request matches a bypass URI pattern
