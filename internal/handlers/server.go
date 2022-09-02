@@ -215,7 +215,6 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 
 		// Map extra claims to headers
 		for k, v := range session.ExtraClaims {
-			logger.Debugf("Setting header %s to %s", k, v)
 			w.Header().Set(k, v)
 		}
 
