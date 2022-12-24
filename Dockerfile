@@ -9,10 +9,11 @@ RUN apk add --no-cache git
 
 # Copy & build
 ADD . /go/src/github.com/turnly/oauth-middleware/
-RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -a -installsuffix nocgo -o /traefik-forward-auth github.com/turnly/oauth-middleware/cmd
+RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -a -installsuffix nocgo -o /oauth github.com/turnly/oauth-middleware/cmd
 
 # Copy into scratch container
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /traefik-forward-auth ./
-ENTRYPOINT ["./traefik-forward-auth"]
+COPY --from=builder /oauth ./
+
+ENTRYPOINT ["./oauth", "--rule.one.action=allow", "--rule.one.rule=\"Path(`/_oauth/logout`)\""]

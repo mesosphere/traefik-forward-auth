@@ -126,6 +126,20 @@ func (a *Authenticator) MakeIDCookie(r *http.Request, email string, token string
 	return cookie, nil
 }
 
+func (a *Authenticator) ClearIDCookie(r *http.Request) *http.Cookie {
+	expires := a.config.CookieExpiry()
+
+	return &http.Cookie{
+		Name:     a.config.CookieName,
+		Value:    "",
+		Path:     "/",
+		Domain:   a.GetCookieDomain(r),
+		HttpOnly: true,
+		Secure:   !a.config.InsecureCookie,
+		Expires:  expires,
+	}
+}
+
 // MakeNameCookie creates a name cookie
 func (a *Authenticator) MakeNameCookie(r *http.Request, name string) *http.Cookie {
 	expires := a.config.CookieExpiry()
@@ -133,6 +147,20 @@ func (a *Authenticator) MakeNameCookie(r *http.Request, name string) *http.Cooki
 	return &http.Cookie{
 		Name:     a.config.UserCookieName,
 		Value:    name,
+		Path:     "/",
+		Domain:   a.GetCookieDomain(r),
+		HttpOnly: false,
+		Secure:   false,
+		Expires:  expires,
+	}
+}
+
+func (a *Authenticator) ClearNameCookie(r *http.Request) *http.Cookie {
+	expires := a.config.CookieExpiry()
+
+	return &http.Cookie{
+		Name:     a.config.UserCookieName,
+		Value:    "",
 		Path:     "/",
 		Domain:   a.GetCookieDomain(r),
 		HttpOnly: false,

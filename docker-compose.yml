@@ -1,0 +1,58 @@
+version: '3'
+
+services:
+  oauth:
+    container_name: oauth
+    image: turnly/oauth:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    networks:
+      turnly.network.public:
+      turnly.network.internal:
+        aliases:
+          - oauth.turnly.local
+    environment:
+      COOKIE_DOMAIN: ${APP_DOMAIN}
+      ENCRYPTION_KEY: ${IAM_ENCRYPTION_KEY}
+      AUTH_HOST: ${IAM_HOSTNAME}
+      SECRET: ${IAM_SIGNING_KEY}
+      PROVIDER_URI: ${IAM_OIDC_PROVIDER_URI}
+      CLIENT_ID: ${IAM_OIDC_CLIENT_ID}
+      CLIENT_SECRET: ${IAM_OIDC_CLIENT_SECRET}
+
+      SCOPE: openid profile email
+      COOKIE_NAME: __tly_x_forwarded_auth_data__
+      USER_COOKIE_NAME: __tly_x_forwarded_auth_name__
+      CSRF_COOKIE_NAME: __tly_x_forwarded_auth_csrf__
+      CLAIMS_SESSION_NAME: __tly_x_forwarded_auth_claims__
+      URL_PATH: /_oauth
+
+      # ----------------------> WARNING: FOR DEVELOPMENT ONLY <----------------------
+      LOG_LEVEL: debug
+      INSECURE_COOKIE: 'true'
+      # ----------------------> WARNING: FOR DEVELOPMENT ONLY <----------------------
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=turnly.network.internal
+
+      - traefik.http.routers.oauth-public.entrypoints=web,websecure
+      - traefik.http.routers.oauth-public.service=oauth-public
+      - traefik.http.routers.oauth-public.rule=Host(`${IAM_HOSTNAME}`) && Path(`/_oauth`)
+      - traefik.http.services.oauth-public.loadbalancer.server.port=4181
+
+      # Adding OAuth-middleware to traefik
+      - traefik.http.middlewares.oauth-middleware.forwardauth.address=http://oauth.turnly.local:4181
+      - traefik.http.middlewares.oauth-middleware.forwardauth.authResponseHeaders=X-Forwarded-User, X-Forwarded-Host, X-Forwarded-For, X-Forwarded-Uri
+      - traefik.http.middlewares.oauth-middleware.forwardauth.trustForwardHeader=true
+
+      # Attach the OAuth-middleware to this service
+      - traefik.http.routers.oauth-public.middlewares=oauth-middleware
+
+networks:
+  turnly.network.internal:
+    name: turnly.network.internal
+    external: true
+  turnly.network.public:
+    name: turnly.network.public
+    external: true
