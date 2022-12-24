@@ -3,7 +3,7 @@ package handlers
 import (
 	"fmt"
 	"github.com/coreos/go-oidc"
-	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
+	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
-	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
-	intlog "github.com/mesosphere/traefik-forward-auth/internal/log"
+	"github.com/turnly/oauth-middleware/internal/authentication"
+	"github.com/turnly/oauth-middleware/internal/configuration"
+	intlog "github.com/turnly/oauth-middleware/internal/log"
 )
 
 var (

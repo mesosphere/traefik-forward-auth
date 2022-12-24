@@ -19,9 +19,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/thomseddon/go-flags"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/features"
-	internallog "github.com/mesosphere/traefik-forward-auth/internal/log"
-	"github.com/mesosphere/traefik-forward-auth/internal/util"
+	"github.com/turnly/oauth-middleware/internal/features"
+	internallog "github.com/turnly/oauth-middleware/internal/log"
+	"github.com/turnly/oauth-middleware/internal/util"
 )
 
 var (
@@ -78,7 +78,7 @@ type Config struct {
 	ServiceAccountToken string
 
 	// Flags
-	EnableV3URLPatternMatching bool `long:"enable-v3-url-pattern-matching" env:"ENABLE_V3_URL_PATTERN_MATCHING" description:"Specifies weather to use v3 URL pattern matching as implemented in this commit: https://github.com/mesosphere/traefik-forward-auth/commit/36c3eee4c9fa262064848d4ddaca6652b96763b5"`
+	EnableV3URLPatternMatching bool `long:"enable-v3-url-pattern-matching" env:"ENABLE_V3_URL_PATTERN_MATCHING" description:"Specifies weather to use v3 URL pattern matching as implemented in this commit: https://github.com/turnly/oauth-middleware/commit/36c3eee4c9fa262064848d4ddaca6652b96763b5"`
 }
 
 // NewConfig loads config from provided args or uses os.Args if nil

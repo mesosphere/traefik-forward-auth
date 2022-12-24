@@ -7,19 +7,19 @@ import (
 	neturl "net/url"
 	"strings"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
-	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
-	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
+	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
+	"github.com/turnly/oauth-middleware/internal/authentication"
+	"github.com/turnly/oauth-middleware/internal/configuration"
 
 	"github.com/containous/traefik/pkg/rules"
 	"github.com/coreos/go-oidc"
-	"github.com/mesosphere/traefik-forward-auth/internal/authorization/rbac"
+	"github.com/turnly/oauth-middleware/internal/authorization/rbac"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/authorization"
-	internallog "github.com/mesosphere/traefik-forward-auth/internal/log"
+	"github.com/turnly/oauth-middleware/internal/authorization"
+	internallog "github.com/turnly/oauth-middleware/internal/log"
 )
 
 const (

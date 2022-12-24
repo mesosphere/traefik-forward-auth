@@ -1,4 +1,4 @@
-module github.com/mesosphere/traefik-forward-auth
+module github.com/turnly/oauth-middleware
 
 go 1.12
 

@@ -14,7 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	rbaclisterv1 "k8s.io/client-go/listers/rbac/v1"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/authorization"
+	"github.com/turnly/oauth-middleware/internal/authorization"
 )
 
 const (

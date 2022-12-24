@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
+	"github.com/turnly/oauth-middleware/internal/authentication"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -17,8 +17,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
-	"github.com/mesosphere/traefik-forward-auth/internal/storage"
+	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
+	"github.com/turnly/oauth-middleware/internal/storage"
 )
 
 var (

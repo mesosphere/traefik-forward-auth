@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/features"
+	"github.com/turnly/oauth-middleware/internal/features"
 )
 
 var (

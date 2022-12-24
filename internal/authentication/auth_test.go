@@ -2,8 +2,8 @@ package authentication
 
 import (
 	"fmt"
-	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
-	"github.com/mesosphere/traefik-forward-auth/internal/util"
+	"github.com/turnly/oauth-middleware/internal/configuration"
+	"github.com/turnly/oauth-middleware/internal/util"
 	"net/http"
 	"testing"
 	"time"

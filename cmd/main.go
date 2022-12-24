@@ -9,14 +9,14 @@ import (
 	"github.com/gorilla/sessions"
 	k8s "k8s.io/client-go/kubernetes"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
-	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
-	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
-	"github.com/mesosphere/traefik-forward-auth/internal/handlers"
-	kubernetes "github.com/mesosphere/traefik-forward-auth/internal/kubernetes"
-	logger "github.com/mesosphere/traefik-forward-auth/internal/log"
-	"github.com/mesosphere/traefik-forward-auth/internal/storage"
-	"github.com/mesosphere/traefik-forward-auth/internal/storage/cluster"
+	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
+	"github.com/turnly/oauth-middleware/internal/authentication"
+	"github.com/turnly/oauth-middleware/internal/configuration"
+	"github.com/turnly/oauth-middleware/internal/handlers"
+	kubernetes "github.com/turnly/oauth-middleware/internal/kubernetes"
+	logger "github.com/turnly/oauth-middleware/internal/log"
+	"github.com/turnly/oauth-middleware/internal/storage"
+	"github.com/turnly/oauth-middleware/internal/storage/cluster"
 )
 
 // Main

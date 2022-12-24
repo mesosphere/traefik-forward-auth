@@ -7,8 +7,8 @@ import (
 
 	"github.com/gorilla/sessions"
 
-	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
-	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
+	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
+	"github.com/turnly/oauth-middleware/internal/authentication"
 )
 
 type GorillaUserInfoStore struct {
