@@ -13,8 +13,8 @@ import (
 
 	"github.com/containous/traefik/pkg/rules"
 	"github.com/coreos/go-oidc"
-	"github.com/turnly/oauth-middleware/internal/authorization/rbac"
 	"github.com/sirupsen/logrus"
+	"github.com/turnly/oauth-middleware/internal/authorization/rbac"
 	"golang.org/x/oauth2"
 	"k8s.io/client-go/kubernetes"
 
@@ -76,10 +76,9 @@ func (s *Server) buildRoutes() {
 		}
 	}
 
-	// Add callback handler
 	s.router.Handle(s.config.Path, s.AuthCallbackHandler())
+	s.router.Handle(s.authenticator.GetBackChannelPath(), s.BackChannelLogoutHandler())
 
-	// Add a default handler
 	if s.config.DefaultAction == "allow" {
 		s.router.NewRoute().Handler(s.AllowHandler("default"))
 	} else {
@@ -96,6 +95,11 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 		"X-Forwarded-Prefix": r.Header.Get("X-Forwarded-Prefix"),
 		"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
 	})
+
+	if s.authenticator.IsBackChannelRequest(r) {
+		s.BackChannelLogoutHandler().ServeHTTP(w, r)
+		return
+	}
 
 	// Modify request
 	r.Method = r.Header.Get("X-Forwarded-Method")
@@ -114,10 +118,53 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AllowHandler handles the request as implicite "allow", returining HTTP 200 response to the Traefik
+// AllowHandler handles the request as implicit "allow", returning HTTP 200 response to the Traefik
 func (s *Server) AllowHandler(rule string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.logger(r, rule, "Allow request")
+		w.WriteHeader(200)
+	}
+}
+
+/**
+ * OpenID Connect Back-Channel Logout
+ * https://openid.net/specs/openid-connect-backchannel-1_0.html
+ *
+ * Keycloak Backchannel logout URL: http://oauth.turnly.local:4181/_oauth/backchannel-logout
+ */
+func (s *Server) BackChannelLogoutHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		logger := s.logger(r, "default", "OpenID Connect Back-Channel Logout")
+
+		logger.Info("Got a back-channel logout request")
+
+		logoutToken := r.FormValue("logout_token")
+		if logoutToken == "" {
+			logger.Error("Oops, we got a logout request without a logout_token")
+
+			http.Error(w, "Oops, we got a logout request without a logout_token", 400)
+			return
+		}
+
+		logger.Debugf("Got a logout request with logout_token: %s", logoutToken)
+
+		verifier := s.config.OIDCProvider.Verifier(&oidc.Config{ClientID: s.config.ClientID, SkipClientIDCheck: true, SkipExpiryCheck: true})
+		token, err := verifier.Verify(s.config.OIDCContext, logoutToken)
+		if err != nil {
+			logger.Errorf("Oops, failed to verify the logout_token: %v", err)
+			http.Error(w, "Bad Gateway", 502)
+			return
+		}
+
+		var claims map[string]interface{}
+		if err := token.Claims(&claims); err != nil {
+			logger.Errorf("failed to extract claims: %v", err)
+			http.Error(w, "Bad Gateway", 502)
+			return
+		}
+
+		logger.Debugf("Got a logout request with claims: %v", claims["sub"].(string))
+
 		w.WriteHeader(200)
 	}
 }
@@ -140,7 +187,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		// Validate cookie
 		id, err := s.authenticator.ValidateCookie(r, c)
 		if err != nil {
-			logger.Info(fmt.Sprintf("cookie validaton failure: %s", err.Error()))
+			logger.Info(fmt.Sprintf("cookie validator failure: %s", err.Error()))
 			s.notAuthenticated(logger, w, r)
 			return
 		}

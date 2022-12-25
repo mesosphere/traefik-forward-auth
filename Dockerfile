@@ -16,4 +16,4 @@ FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /oauth ./
 
-ENTRYPOINT ["./oauth", "--rule.one.action=allow", "--rule.one.rule=\"Path(`/_oauth/logout`)\""]
+ENTRYPOINT ["./oauth"]

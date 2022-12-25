@@ -270,6 +270,16 @@ func (a *Authenticator) matchCookieDomains(domain string) (bool, string) {
 	return false, p[0]
 }
 
+func (a *Authenticator) GetBackChannelPath() string {
+	path := a.config.Path + "/backchannel-logout"
+
+	return path
+}
+
+func (a *Authenticator) IsBackChannelRequest(r *http.Request) bool {
+	return r.URL.String() == a.GetBackChannelPath()
+}
+
 // Utility methods
 
 // getRequestSchemeHost returns scheme://host part of the request
