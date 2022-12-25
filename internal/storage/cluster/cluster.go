@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/turnly/oauth-middleware/internal/authentication"
-	"math/rand"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/turnly/oauth-middleware/internal/authentication"
 
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -75,8 +75,14 @@ func (cs *ClusterStorage) Get(r *http.Request) (*v1alpha1.UserInfo, error) {
 	return cs.cacheGet(claimsId)
 }
 
+func (cs *ClusterStorage) GetBySubjectAndSession(subject, session string) (*v1alpha1.UserInfo, error) {
+	claimsId := subject + ":" + session
+
+	return cs.cacheGet(claimsId)
+}
+
 func (cs *ClusterStorage) Save(r *http.Request, w http.ResponseWriter, info *v1alpha1.UserInfo) error {
-	claimsId := cs.generateClaimsID()
+	claimsId := info.Subject + ":" + info.SID
 	cs.createClaimsIDCookie(claimsId, r, w)
 	return cs.storeUserInfo(claimsId, info)
 }
@@ -90,6 +96,13 @@ func (cs *ClusterStorage) Clear(r *http.Request, w http.ResponseWriter) error {
 	}
 	cs.cache.Delete(claimsId)
 	cs.clearClaimsIDCookie(r, w)
+	return cs.deleteClaimsSecret(claimsId)
+}
+
+func (cs *ClusterStorage) Delete(subject, session string) error {
+	claimsId := subject + ":" + session
+	cs.cache.Delete(claimsId)
+
 	return cs.deleteClaimsSecret(claimsId)
 }
 
@@ -117,12 +130,6 @@ func (cs *ClusterStorage) clearClaimsIDCookie(r *http.Request, w http.ResponseWr
 		Secure:   true,
 		HttpOnly: true,
 	})
-}
-
-func (cs *ClusterStorage) generateClaimsID() string {
-	id := make([]byte, storage.ClaimsIdLength)
-	_, _ = rand.Read(id)
-	return fmt.Sprintf("%x", id)
 }
 
 func (cs *ClusterStorage) generateHMAC(claimsId string) string {

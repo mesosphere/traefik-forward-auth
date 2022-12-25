@@ -6,4 +6,6 @@ type UserInfoInterface interface {
 	Clear(r *http.Request, w http.ResponseWriter) error
 	Get(r *http.Request) (*UserInfo, error)
 	Save(r *http.Request, w http.ResponseWriter, info *UserInfo) error
+	GetBySubjectAndSession(subject, session string) (*UserInfo, error)
+	Delete(subject, session string) error
 }

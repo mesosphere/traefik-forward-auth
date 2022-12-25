@@ -165,6 +165,27 @@ func (s *Server) BackChannelLogoutHandler() http.HandlerFunc {
 
 		logger.Debugf("Got a logout request with claims: %v", claims["sub"].(string))
 
+		userInfo, err := s.userinfo.GetBySubjectAndSession(claims["sub"].(string), claims["sid"].(string))
+		if err != nil {
+			logger.Errorf("failed to get user: %v", err)
+			http.Error(w, "Bad Gateway", 502)
+			return
+		}
+
+		logger.Debugf("Got a logout request with userinfo: %v", userInfo)
+
+		if err = s.userinfo.Delete(claims["sub"].(string), claims["sid"].(string)); err != nil {
+			logger.Errorf("error deleting session: %v", err)
+		}
+
+		logger.Debug("Clearing session cookies...")
+
+		http.SetCookie(w, s.authenticator.ClearCSRFCookie(r))
+		http.SetCookie(w, s.authenticator.ClearIDCookie(r))
+		http.SetCookie(w, s.authenticator.ClearNameCookie(r))
+
+		logger.Debug("Back-channel logout request completed")
+
 		w.WriteHeader(200)
 	}
 }
@@ -208,6 +229,30 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			s.notAuthenticated(logger, w, r)
 			return
 		}
+
+		verifier := s.config.OIDCProvider.Verifier(&oidc.Config{ClientID: s.config.ClientID, SkipClientIDCheck: true})
+		token, err := verifier.Verify(s.config.OIDCContext, id.Token)
+		if err != nil {
+			logger.Errorf("failed to verify token: %v", err)
+			s.notAuthenticated(logger, w, r)
+			return
+		}
+
+		var claims map[string]interface{}
+		if err := token.Claims(&claims); err != nil {
+			logger.Errorf("failed to extract claims: %v", err)
+			s.notAuthenticated(logger, w, r)
+			return
+		}
+
+		userInfo, err := s.userinfo.GetBySubjectAndSession(claims["sub"].(string), claims["sid"].(string))
+		if err != nil {
+			logger.Errorf("failed to get user: %v", err)
+			s.notAuthenticated(logger, w, r)
+			return
+		}
+
+		logger.Debugf("Got a userinfo: %v", userInfo)
 
 		// Authorize user
 		groups, err := s.getGroupsFromSession(r)
@@ -422,7 +467,16 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			logger.Warnf("failed to get groups claim from the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
 		}
 
+		sub, ok := claims["sub"].(string)
+		if !ok {
+			logger.Error("missing subject claim")
+			http.Error(w, "Bad Gateway", 502)
+			return
+		}
+
 		if err := s.userinfo.Save(r, w, &v1alpha1.UserInfo{
+			Subject:  sub,
+			SID:      claims["sid"].(string),
 			Username: name.(string),
 			Email:    email.(string),
 			Groups:   groups,

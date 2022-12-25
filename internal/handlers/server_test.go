@@ -2,14 +2,15 @@ package handlers
 
 import (
 	"fmt"
-	"github.com/coreos/go-oidc"
-	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/coreos/go-oidc"
+	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
 
 	"github.com/gorilla/sessions"
 	"github.com/stretchr/testify/assert"
@@ -78,7 +79,19 @@ func (f *fakeUserInfoStore) Clear(r *http.Request, w http.ResponseWriter) error 
 	return nil
 }
 
+func (f *fakeUserInfoStore) Delete(subject, session string) error {
+	return nil
+}
+
 func (f *fakeUserInfoStore) Get(r *http.Request) (*v1alpha1.UserInfo, error) {
+	return &v1alpha1.UserInfo{
+		Username: "test",
+		Email:    "test@test.com",
+		Groups:   []string{"test"},
+	}, nil
+}
+
+func (f *fakeUserInfoStore) GetBySubjectAndSession(subject, session string) (*v1alpha1.UserInfo, error) {
 	return &v1alpha1.UserInfo{
 		Username: "test",
 		Email:    "test@test.com",
