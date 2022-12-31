@@ -197,13 +197,13 @@ func convertLegacyToIni(name string) (io.Reader, error) {
 func (c *Config) Validate() {
 	// Check for show stopper errors
 	if len(c.SecretString) == 0 {
-		log.Fatal("\"secret\" option must be set.")
+		log.Fatal("Oops, you forgot to set the \"secret\" option. This is required for signing cookies.")
 	} else if len(c.SecretString) < 32 {
-		log.Infoln("for better security, \"secret\" should ideally be 32 bytes or longer")
+		log.Infoln("Mmm, Your secret is only", len(c.SecretString), "bytes long. Consider using a 32 byte secret for better security.")
 	}
 
 	if c.ProviderURI == "" || c.ClientID == "" || c.ClientSecret == "" {
-		log.Fatal("provider-uri, client-id, client-secret must be set")
+		log.Fatal("Oops, you forgot to set the \"provider-uri\", \"client-id\", or \"client-secret\" options. These are required for authenticating with the OpenID Connect provider.")
 	}
 
 	// Check rules
@@ -223,11 +223,14 @@ func (c *Config) Validate() {
 func (c *Config) LoadOIDCProviderConfiguration() error {
 	// Fetch OIDC Provider configuration
 	provider, err := oidc.NewProvider(c.OIDCContext, c.ProviderURI)
+
 	if err != nil {
-		return fmt.Errorf("failed to get provider configuration for %s: %v (hint: make sure %s is accessible from the cluster)",
+		return fmt.Errorf("Oops, unable to connect to the OpenID Connect provider %s: %v (hint: make sure %s is accessible from the cluster)",
 			c.ProviderURI, err, c.ProviderURI)
 	}
+
 	c.OIDCProvider = provider
+
 	return nil
 }
 
@@ -268,7 +271,7 @@ func (r *Rule) FormattedRule() string {
 // Validate validates the rule
 func (r *Rule) Validate() {
 	if r.Action != "auth" && r.Action != "allow" {
-		log.Fatal("invalid rule action, must be \"auth\" or \"allow\"")
+		log.Fatal("Oops, you have an invalid rule action. Valid actions are \"auth\" and \"allow\".")
 	}
 }
 

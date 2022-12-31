@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	neturl "net/url"
@@ -61,7 +63,7 @@ func (s *Server) buildRoutes() {
 			err = s.router.AddRoute(rule.FormattedRule(), 1, s.AuthHandler(name))
 		}
 		if err != nil {
-			panic(fmt.Sprintf("could not add route: %v", err))
+			panic(fmt.Sprintf("Oops. error while adding route: %v", err))
 		}
 	}
 
@@ -85,7 +87,11 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 		"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
 	})
 
+	logger.Debug("Processing new request from root handler ...")
+
 	if s.authenticator.IsBackChannelRequest(r) {
+		logger.Debug("Processing backchannel request ...")
+
 		s.BackChannelLogoutHandler().ServeHTTP(w, r)
 		return
 	}
@@ -96,13 +102,19 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 	r.URL, _ = neturl.Parse(authentication.GetRequestURI(r))
 
 	if s.config.AuthHost == "" || len(s.config.CookieDomains) > 0 || r.Host == s.config.AuthHost {
+		logger.Debug("Forwarding request to routers ...")
+
 		s.router.ServeHTTP(w, r)
 	} else {
+		logger.Debug("Redirecting request to auth host ...")
+
 		// Redirect the client to the authHost.
 		url := r.URL
 		url.Scheme = r.Header.Get("X-Forwarded-Proto")
 		url.Host = s.config.AuthHost
-		logger.Debugf("redirect to %v", url.String())
+
+		logger.Infof("Redirecting request to %v ...", url.String())
+
 		http.Redirect(w, r, url.String(), 307)
 	}
 }
@@ -125,7 +137,7 @@ func (s *Server) BackChannelLogoutHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger := s.logger(r, "default", "OpenID Connect Back-Channel Logout")
 
-		logger.Info("Got a back-channel logout request")
+		logger.Debug("Got a back-channel logout request, processing ...")
 
 		logoutToken := r.FormValue("logout_token")
 		if logoutToken == "" {
@@ -147,7 +159,7 @@ func (s *Server) BackChannelLogoutHandler() http.HandlerFunc {
 
 		var claims map[string]interface{}
 		if err := token.Claims(&claims); err != nil {
-			logger.Errorf("failed to extract claims: %v", err)
+			logger.Errorf("Oops, failed to parse the logout_token claims: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -176,7 +188,8 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		// Validate cookie
 		id, err := s.authenticator.ValidateCookie(r, c)
 		if err != nil {
-			logger.Info(fmt.Sprintf("cookie validator failure: %s", err.Error()))
+			logger.Debugf(fmt.Sprintf("Oops, failed to validate cookie: %v", err.Error()))
+			logger.Debugf("Redirecting to IAM for re-authentication ...")
 			s.notAuthenticated(logger, w, r)
 			return
 		}
@@ -186,14 +199,16 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		if !valid {
 			logger.WithFields(logrus.Fields{
 				"email": id.Email,
-			}).Errorf("Invalid email")
+			}).Errorf("Oops, failed to validate email: %v", err.Error())
+
 			http.Error(w, "Not authorized", 401)
+
 			return
 		}
 
-		// Token forwarding requested now with no token stored in the session, reauth
+		// Token forwarding requested now with no token stored in the session, re-auth
 		if s.config.ForwardTokenHeaderName != "" && id.Token == "" {
-			logger.Info("re-auth forced because token forwarding enabled and no token stored")
+			logger.Debug("Redirecting to IAM for re-authentication because token forwarding enabled and no token stored ...")
 			s.notAuthenticated(logger, w, r)
 			return
 		}
@@ -201,33 +216,24 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		// Authorize user
 		groups, err := s.getGroupsFromSession(r)
 		if err != nil {
-			logger.Errorf("error getting groups from session: %v", err)
+			logger.Errorf("Oops, failed to get groups from session: %v", err)
+			logger.Debug("Redirecting to IAM for re-authentication ...")
+
 			s.notAuthenticated(logger, w, r)
 			return
 		}
 
 		if groups == nil {
-			logger.Info("groups session data is missing, re-authenticating")
+			logger.Debug("Oops, no groups found in session, redirecting to IAM for re-authentication ...")
+
 			s.notAuthenticated(logger, w, r)
 			return
 		}
 
 		// Valid request
-		logger.Debugf("Allow request from %s", id.Email)
+		logger.Debugf("Ahoy, the user is authenticated and authorized, allowing request ... user: %s, groups: %s", id.Email, groups)
 		for _, headerName := range s.config.EmailHeaderNames {
 			w.Header().Set(headerName, id.Email)
-		}
-
-		if s.config.EnableImpersonation {
-			// Set impersonation headers
-			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s, groups: %s", id.Email, groups))
-			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", s.config.ServiceAccountToken))
-			w.Header().Set(impersonateUserHeader, id.Email)
-			w.Header().Set(impersonateGroupHeader, "system:authenticated")
-			for _, group := range groups {
-				w.Header().Add(impersonateGroupHeader, fmt.Sprintf("%s%s", s.config.GroupClaimPrefix, group))
-			}
-			w.Header().Set("Connection", cleanupConnectionHeader(w.Header().Get("Connection")))
 		}
 
 		if s.config.ForwardTokenHeaderName != "" && id.Token != "" {
@@ -244,33 +250,20 @@ var removeHeaders = map[string]bool{
 	strings.ToLower(impersonateGroupHeader): true,
 }
 
-// Traefik correctly removes any headers listed in the Connection header, but
-// because it removes headers after forward auth has run, a specially crafted
-// request can forward to the backend with the forward auth headers removed.
-// Remove forward auth headers from the Connection header to ensure that they
-// get passed to the backend.
-func cleanupConnectionHeader(original string) string {
-	headers := strings.Split(original, ",")
-	passThrough := make([]string, 0, len(headers))
-	for _, header := range headers {
-		if remove := removeHeaders[strings.ToLower(strings.TrimSpace(header))]; !remove {
-			passThrough = append(passThrough, header)
-		}
-	}
-	return strings.TrimSpace(strings.Join(passThrough, ","))
-}
-
 // AuthCallbackHandler handles the request as a callback from authentication provider.
 // It validates CSRF, exchanges code-token for id-token and extracts groups from the id-token.
 func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Logging setup
-		logger := s.logger(r, "default", "Handling callback")
+		logger := s.logger(r, "default", "Authenticate callback")
+
+		logger.Debug("Processing authentication request callback from IAM ...")
 
 		// Check for CSRF cookie
 		c, err := r.Cookie(s.config.CSRFCookieName)
 		if err != nil {
-			logger.Errorf("missing CSRF cookie: %v", err)
+			logger.Errorf("Oops, failed to get CSRF cookie: %v", err)
+
 			http.Error(w, "Not authorized", 401)
 			return
 		}
@@ -278,7 +271,8 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Validate state
 		valid, redirect, err := authentication.ValidateCSRFCookie(r, c)
 		if !valid {
-			logger.Errorf("error validating CSRF cookie: %v", err)
+			logger.Errorf("Oops, failed to validate CSRF cookie: %v", err)
+
 			http.Error(w, "Not authorized", 401)
 			return
 		}
@@ -293,7 +287,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		if s.config.Scope != "" {
 			scope = []string{s.config.Scope}
 		} else {
-			scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
+			scope = []string{oidc.ScopeOpenID, "openid", "profile", "email"}
 		}
 
 		oauth2Config := oauth2.Config{
@@ -307,7 +301,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Exchange code for token
 		oauth2Token, err := oauth2Config.Exchange(s.config.OIDCContext, r.URL.Query().Get("code"))
 		if err != nil {
-			logger.Errorf("failed to exchange token: %v", err)
+			logger.Errorf("Oops, a unexpected error occurred while exchanging token: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -315,7 +309,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Extract the ID Token from OAuth2 token.
 		rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 		if !ok {
-			logger.Error("missing ID token")
+			logger.Error("Oops, the ID token is missing from the IAM response")
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -324,7 +318,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		verifier := provider.Verifier(&oidc.Config{ClientID: s.config.ClientID})
 		idToken, err := verifier.Verify(s.config.OIDCContext, rawIDToken)
 		if err != nil {
-			logger.Errorf("failed to verify token: %v", err)
+			logger.Errorf("Oops, a unexpected error occurred while verifying token: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -332,7 +326,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		// Extract custom claims
 		var claims map[string]interface{}
 		if err := idToken.Claims(&claims); err != nil {
-			logger.Errorf("failed to extract claims: %v", err)
+			logger.Errorf("Oops, a unexpected error occurred while extracting claims: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -347,16 +341,17 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			// Generate cookies
 			c, err := s.authenticator.MakeIDCookie(r, email.(string), token)
 			if err != nil {
-				logger.Errorf("error generating secure session cookie: %v", err)
+				logger.Errorf("Oops, a unexpected error occurred while generating cookies: %v", err)
 				http.Error(w, "Bad Gateway", 502)
 				return
 			}
+
 			http.SetCookie(w, c)
-			logger.WithFields(logrus.Fields{
-				"user": claims["email"].(string),
-			}).Infof("generated auth cookie")
+
+			logger.Debugf("Generated ID cookie for user %s", claims["email"].(string))
+
 		} else {
-			logger.Warn("no email claim present in the ID token")
+			logger.Warn("Oops, no email claim found in the ID token")
 		}
 
 		// If name in null, empty or whitespace, use email address for name
@@ -368,7 +363,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 		http.SetCookie(w, s.authenticator.MakeNameCookie(r, name.(string)))
 		logger.WithFields(logrus.Fields{
 			"name": name.(string),
-		}).Info("generated name cookie")
+		}).Debugf("Generated name cookie for user %s", claims["email"].(string))
 
 		// Mapping groups
 		groups := []string{}
@@ -378,7 +373,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 				groups = append(groups, g.(string))
 			}
 		} else {
-			logger.Warnf("failed to get groups claim from the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
+			logger.Warnf("Oops, no groups claim found in the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
 		}
 
 		if err := s.store.Save(r, w, &api.UserInfo{
@@ -386,7 +381,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			Email:    email.(string),
 			Groups:   groups,
 		}); err != nil {
-			logger.Errorf("error saving session: %v", err)
+			logger.Errorf("Oops, a unexpected error occurred while saving session: %v", err)
 			http.Error(w, "Bad Gateway", 502)
 			return
 		}
@@ -409,7 +404,9 @@ func (s *Server) notAuthenticated(logger *logrus.Entry, w http.ResponseWriter, r
 
 	for i, acceptPart := range acceptParts {
 		format := strings.Trim(strings.SplitN(acceptPart, ";", 2)[0], " ")
+
 		if format == "text/html" || (i == 0 && format == "*/*") {
+			logger.Debug("This request is from a valid client (browser) and will be redirected to the IAM for authentication, redirecting...")
 			s.authRedirect(logger, w, r)
 			return
 		} else if strings.HasPrefix(format, "application/json") {
@@ -418,33 +415,43 @@ func (s *Server) notAuthenticated(logger *logrus.Entry, w http.ResponseWriter, r
 			bestFormat = "xml"
 		}
 	}
-	logger.Warnf("Non-HTML request: %v", acceptHeader)
 
-	errStr := "Authentication expired. Reload page to re-authenticate."
+	logger.Debug("This request is not from a valid client (browser) and will be rejected with a 401 error")
+
+	errStr := "Oops, your authentication has expired or is invalid and you need to re-authenticate."
+
 	if bestFormat == "json" {
 		w.Header().Set("Content-Type", "application/json")
-		http.Error(w, `{"error": "`+errStr+`"}`, 401)
-	} else if bestFormat == "xml" {
-		w.Header().Set("Content-Type", "application/xml")
-		http.Error(w, `<errors><error>`+errStr+`</error></errors>`, 401)
-	} else {
-		http.Error(w, errStr, 401)
+		w.WriteHeader(401)
+
+		json.NewEncoder(w).Encode(map[string]string{"error": errStr})
+		return
 	}
+
+	if bestFormat == "xml" {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(401)
+
+		xml.NewEncoder(w).Encode(map[string]string{"error": errStr})
+		return
+	}
+
+	http.Error(w, errStr, 401)
 }
 
-// authRedirect generates CSRF cookie and redirests to authentication provider to start the authentication flow.
+// authRedirect generates CSRF cookie and redirects to authentication provider to start the authentication flow.
 func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) {
 	// Error indicates no cookie, generate nonce
 	nonce, err := authentication.GenerateNonce()
 	if err != nil {
-		logger.Errorf("error generating nonce, %v", err)
+		logger.Errorf("Oops, a unexpected error occurred while generating nonce: %v", err)
 		http.Error(w, "Service unavailable", 503)
 		return
 	}
 
 	// Set the CSRF cookie
 	http.SetCookie(w, s.authenticator.MakeCSRFCookie(r, nonce))
-	logger.Debug("sending CSRF cookie and a redirect to OIDC login")
+	logger.Debug("Sending CSRF cookie and a redirect to OIDC login")
 
 	// Mapping scope
 	var scope []string
@@ -454,9 +461,11 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 		scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
 	}
 
+	logger.Debugf("The scope used for the authentication is: %s", scope)
+
 	// clear existing claims session
 	if err = s.store.Clear(r, w); err != nil {
-		logger.Errorf("error clearing session: %v", err)
+		logger.Errorf("Oops, error clearing session: %v", err)
 	}
 
 	oauth2Config := oauth2.Config{
