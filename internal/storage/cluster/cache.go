@@ -4,12 +4,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
+	api "github.com/turnly/oauth-middleware/internal/api"
 )
 
 type UserInfoRecord struct {
 	created  time.Time
-	userInfo *v1alpha1.UserInfo
+	userInfo *api.UserInfo
 }
 
 // UserInfoCache is a simple hit or miss cache which is used to reduce calls to
@@ -34,7 +34,7 @@ func NewUserInfoCache(ttl time.Duration) *UserInfoCache {
 	}
 }
 
-func (uc *UserInfoCache) Get(claimsId string) *v1alpha1.UserInfo {
+func (uc *UserInfoCache) Get(claimsId string) *api.UserInfo {
 	record, ok := uc.infos[claimsId]
 	if !ok {
 		return nil
@@ -49,7 +49,7 @@ func (uc *UserInfoCache) Get(claimsId string) *v1alpha1.UserInfo {
 	return record.userInfo
 }
 
-func (uc *UserInfoCache) Save(claimsId string, info *v1alpha1.UserInfo) {
+func (uc *UserInfoCache) Save(claimsId string, info *api.UserInfo) {
 	record := UserInfoRecord{
 		created:  time.Now(),
 		userInfo: info,

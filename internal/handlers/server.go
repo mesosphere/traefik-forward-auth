@@ -3,23 +3,17 @@ package handlers
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	neturl "net/url"
 	"strings"
-
-	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
-	"github.com/turnly/oauth-middleware/internal/authentication"
-	"github.com/turnly/oauth-middleware/internal/configuration"
 
 	"github.com/containous/traefik/pkg/rules"
 	"github.com/coreos/go-oidc"
 	"github.com/sirupsen/logrus"
-	"github.com/turnly/oauth-middleware/internal/authorization/rbac"
+	api "github.com/turnly/oauth-middleware/internal/api"
+	"github.com/turnly/oauth-middleware/internal/authentication"
+	"github.com/turnly/oauth-middleware/internal/configuration"
+	log "github.com/turnly/oauth-middleware/internal/log"
 	"golang.org/x/oauth2"
-	"k8s.io/client-go/kubernetes"
-
-	"github.com/turnly/oauth-middleware/internal/authorization"
-	internallog "github.com/turnly/oauth-middleware/internal/log"
 )
 
 const (
@@ -30,29 +24,24 @@ const (
 // Server implements the HTTP server handling forwardauth
 type Server struct {
 	router        *rules.Router
-	userinfo      v1alpha1.UserInfoInterface
-	authorizer    authorization.Authorizer
+	store         api.StoreInterface
 	log           logrus.FieldLogger
 	config        *configuration.Config
 	authenticator *authentication.Authenticator
 }
 
 // NewServer creates a new forwardauth server
-func NewServer(userinfo v1alpha1.UserInfoInterface, clientset kubernetes.Interface, config *configuration.Config) *Server {
+func NewServer(store api.StoreInterface, config *configuration.Config) *Server {
 	s := &Server{
-		log:           internallog.NewDefaultLogger(config.LogLevel, config.LogFormat),
+		log:           log.NewDefaultLogger(config.LogLevel, config.LogFormat),
 		config:        config,
-		userinfo:      userinfo,
+		store:         store,
 		authenticator: authentication.NewAuthenticator(config),
 	}
 
 	s.buildRoutes()
-	s.userinfo = userinfo
-	if config.EnableRBAC {
-		rbac := rbac.NewAuthorizer(clientset, s.log)
-		rbac.CaseInsensitiveSubjects = config.CaseInsensitiveSubjects
-		s.authorizer = rbac
-	}
+	s.store = store
+
 	return s
 }
 
@@ -221,36 +210,6 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			logger.Info("groups session data is missing, re-authenticating")
 			s.notAuthenticated(logger, w, r)
 			return
-		}
-
-		if s.config.EnableRBAC && !s.authzIsBypassed(r) {
-			kubeUserInfo := s.makeKubeUserInfo(id.Email, groups)
-
-			requestURL := authentication.GetRequestURL(r)
-
-			targetURL, err := url.Parse(requestURL)
-			if err != nil {
-				logger.Errorf("unable to parse target URL %s: %v", requestURL, err)
-				http.Error(w, "Bad Gateway", 502)
-				return
-			}
-
-			logger.Debugf("authorizing user: %s, groups: %s", kubeUserInfo.Name, kubeUserInfo.Groups)
-			authorized, err := s.authorizer.Authorize(kubeUserInfo, r.Method, targetURL)
-			if err != nil {
-				logger.Errorf("error while authorizing %s: %v", kubeUserInfo, err)
-				http.Error(w, "Bad Gateway", 502)
-				return
-			}
-
-			if !authorized {
-				logger.Infof("user %s is not authorized to `%s` in %s", kubeUserInfo.GetName(), r.Method, targetURL)
-				//TODO:k3a: consider some kind of re-auth to recheck for new groups
-				http.Error(w, "Not Authorized", 401)
-				return
-			}
-
-			logger.Infof("user %s is authorized to `%s` in %s", kubeUserInfo.GetName(), r.Method, targetURL)
 		}
 
 		// Valid request
@@ -422,7 +381,7 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			logger.Warnf("failed to get groups claim from the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
 		}
 
-		if err := s.userinfo.Save(r, w, &v1alpha1.UserInfo{
+		if err := s.store.Save(r, w, &api.UserInfo{
 			Username: name.(string),
 			Email:    email.(string),
 			Groups:   groups,
@@ -496,7 +455,7 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 	}
 
 	// clear existing claims session
-	if err = s.userinfo.Clear(r, w); err != nil {
+	if err = s.store.Clear(r, w); err != nil {
 		logger.Errorf("error clearing session: %v", err)
 	}
 
@@ -533,32 +492,9 @@ func (s *Server) logger(r *http.Request, rule, msg string) *logrus.Entry {
 
 // getGroupsFromSession returns list of groups present in the session
 func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
-	userInfo, err := s.userinfo.Get(r)
+	userInfo, err := s.store.Get(r)
 	if err != nil {
 		return nil, err
 	}
 	return userInfo.Groups, nil
-}
-
-// authzIsBypassed returns true if the request matches a bypass URI pattern
-func (s *Server) authzIsBypassed(r *http.Request) bool {
-	for _, bypassURIPattern := range s.config.AuthZPassThrough {
-		if authorization.URLMatchesWildcardPattern(r.URL.Path, bypassURIPattern) {
-			s.log.Infof("authorization is disabled for %s", r.URL.Path)
-			return true
-		}
-	}
-	return false
-}
-
-// makeKubeUserInfo appends group prefix to all provided groups and adds "system:authenticated" group to the list
-func (s *Server) makeKubeUserInfo(email string, groups []string) authorization.User {
-	g := []string{"system:authenticated"}
-	for _, group := range groups {
-		g = append(g, fmt.Sprintf("%s%s", s.config.GroupClaimPrefix, group))
-	}
-	return authorization.User{
-		Name:   email,
-		Groups: g,
-	}
 }

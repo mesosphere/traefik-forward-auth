@@ -7,7 +7,7 @@ import (
 
 	"github.com/gorilla/sessions"
 
-	"github.com/turnly/oauth-middleware/internal/api/storage/v1alpha1"
+	api "github.com/turnly/oauth-middleware/internal/api"
 	"github.com/turnly/oauth-middleware/internal/authentication"
 )
 
@@ -18,13 +18,13 @@ type GorillaUserInfoStore struct {
 	Auth *authentication.Authenticator
 }
 
-func (c *GorillaUserInfoStore) Get(r *http.Request) (*v1alpha1.UserInfo, error) {
+func (c *GorillaUserInfoStore) Get(r *http.Request) (*api.UserInfo, error) {
 	session, _ := c.SessionStore.Get(r, c.SessionName)
 	if session == nil {
-		return nil, v1alpha1.UserDataStoreError(fmt.Sprintf("could not get session: %s", c.SessionName))
+		return nil, api.UserDataStoreError(fmt.Sprintf("could not get session: %s", c.SessionName))
 	}
 	if session.IsNew {
-		return nil, v1alpha1.UserDataStoreError(fmt.Sprintf("session did not exist: %s", c.SessionName))
+		return nil, api.UserDataStoreError(fmt.Sprintf("session did not exist: %s", c.SessionName))
 	}
 
 	data, ok := session.Values[UserInfoKey]
@@ -32,24 +32,24 @@ func (c *GorillaUserInfoStore) Get(r *http.Request) (*v1alpha1.UserInfo, error) 
 		return nil, nil
 	}
 
-	userinfo := &v1alpha1.UserInfo{}
-	if err := json.Unmarshal(data.([]byte), userinfo); err != nil {
-		return nil, fmt.Errorf("error parsing userinfo: %w", err)
+	store := &api.UserInfo{}
+	if err := json.Unmarshal(data.([]byte), store); err != nil {
+		return nil, fmt.Errorf("error parsing store: %w", err)
 	}
 
-	return userinfo, nil
+	return store, nil
 }
 
-func (c *GorillaUserInfoStore) Save(r *http.Request, w http.ResponseWriter, info *v1alpha1.UserInfo) error {
+func (c *GorillaUserInfoStore) Save(r *http.Request, w http.ResponseWriter, info *api.UserInfo) error {
 	session, _ := c.SessionStore.Get(r, c.SessionName)
 	if session == nil {
 		// should never happen
-		return v1alpha1.UserDataStoreError("session is nil")
+		return api.UserDataStoreError("session is nil")
 	}
 
 	data, err := json.Marshal(info)
 	if err != nil {
-		return fmt.Errorf("error mashelling userinfo: %w", err)
+		return fmt.Errorf("error mashelling store: %w", err)
 	}
 
 	session.Values[UserInfoKey] = data

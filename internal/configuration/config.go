@@ -19,8 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/thomseddon/go-flags"
 
-	"github.com/turnly/oauth-middleware/internal/features"
-	internallog "github.com/turnly/oauth-middleware/internal/log"
+	logger "github.com/turnly/oauth-middleware/internal/log"
 	"github.com/turnly/oauth-middleware/internal/util"
 )
 
@@ -33,52 +32,38 @@ type Config struct {
 	LogLevel  string `long:"log-level" env:"LOG_LEVEL" default:"warn" choice:"trace" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" choice:"panic" description:"Log level"`
 	LogFormat string `long:"log-format"  env:"LOG_FORMAT" default:"text" choice:"text" choice:"json" choice:"pretty" description:"Log format"`
 
-	ProviderURI             string               `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
-	ClientID                string               `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
-	ClientSecret            string               `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
-	Scope                   string               `long:"scope" env:"SCOPE" description:"Define scope"`
-	AuthHost                string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
-	Config                  func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
-	CookieDomains           []util.CookieDomain  `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
-	InsecureCookie          bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
-	CookieName              string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
-	EmailHeaderNames        CommaSeparatedList   `long:"email-header-names" env:"EMAIL_HEADER_NAMES" default:"X-Forwarded-User" description:"Response headers containing the authenticated user's username"`
-	UserCookieName          string               `long:"user-cookie-name" env:"USER_COOKIE_NAME" default:"_forward_auth_name" description:"User Cookie Name"`
-	CSRFCookieName          string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
-	ClaimsSessionName       string               `long:"claims-session-name" env:"CLAIMS_SESSION_NAME" default:"_forward_auth_claims" description:"Name of the claims session"`
-	DefaultAction           string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
-	Domains                 CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
-	LifetimeString          int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
-	Path                    string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
-	SecretString            string               `long:"secret" env:"SECRET" description:"Secret used for signing the cookie (required)" json:"-"`
-	Whitelist               CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
-	EnableImpersonation     bool                 `long:"enable-impersonation" env:"ENABLE_IMPERSONATION" description:"Indicates that impersonation headers should be set on successful auth"`
-	ForwardTokenHeaderName  string               `long:"forward-token-header-name" env:"FORWARD_TOKEN_HEADER_NAME" description:"Header name to forward the raw ID token in (won't forward token if empty)"`
-	ForwardTokenPrefix      string               `long:"forward-token-prefix" env:"FORWARD_TOKEN_PREFIX" default:"Bearer " description:"Prefix string to add before the forwarded ID token"`
-	ServiceAccountTokenPath string               `long:"service-account-token-path" env:"SERVICE_ACCOUNT_TOKEN_PATH" default:"/var/run/secrets/kubernetes.io/serviceaccount/token" description:"When impersonation is enabled, this token is passed via the Authorization header to the ingress. The user associated with the token must have impersonation privileges."`
-	Rules                   map[string]*Rule     `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
-	GroupClaimPrefix        string               `long:"group-claim-prefix" env:"GROUP_CLAIM_PREFIX" default:"oidc:" description:"prefix oidc group claims with this value"`
-	EncryptionKeyString     string               `long:"encryption-key" env:"ENCRYPTION_KEY" description:"Encryption key used to encrypt the cookie (required)" json:"-"`
-	GroupsAttributeName     string               `long:"groups-attribute-name" env:"GROUPS_ATTRIBUTE_NAME" default:"groups" description:"Map the correct attribute that contain the user groups"`
-
-	// RBAC
-	EnableRBAC              bool               `long:"enable-rbac" env:"ENABLE_RBAC" description:"Indicates that RBAC support should be enabled"`
-	AuthZPassThrough        CommaSeparatedList `long:"authz-pass-through" env:"AUTHZ_PASS_THROUGH" description:"One or more routes which bypass authorization checks"`
-	CaseInsensitiveSubjects bool               `long:"case-insensitive-subjects" env:"CASE_INSENSITIVE_SUBJECTS" description:"Make case-insensitive comparison of user and group names in the RBAC implementation"`
-
-	// Storage
-	EnableInClusterStorage bool   `long:"enable-in-cluster-storage" env:"ENABLE_IN_CLUSTER_STORAGE" description:"When true, sessions are store in a kubernetes apiserver"`
-	ClusterStoreNamespace  string `long:"cluster-store-namespace" env:"CLUSTER_STORE_NAMESPACE" default:"default" description:"Namespace to store userinfo secrets"`
-	ClusterStoreCacheTTL   int    `long:"cluster-store-cache-ttl" env:"CLUSTER_STORE_CACHE_TTL" default:"60" description:"TTL (in seconds) of the internal secret cache"`
+	ProviderURI            string               `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
+	ClientID               string               `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
+	ClientSecret           string               `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
+	Scope                  string               `long:"scope" env:"SCOPE" description:"Define scope"`
+	AuthHost               string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
+	Config                 func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
+	CookieDomains          []util.CookieDomain  `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
+	InsecureCookie         bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
+	CookieName             string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
+	EmailHeaderNames       CommaSeparatedList   `long:"email-header-names" env:"EMAIL_HEADER_NAMES" default:"X-Forwarded-User" description:"Response headers containing the authenticated user's username"`
+	UserCookieName         string               `long:"user-cookie-name" env:"USER_COOKIE_NAME" default:"_forward_auth_name" description:"User Cookie Name"`
+	CSRFCookieName         string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
+	ClaimsSessionName      string               `long:"claims-session-name" env:"CLAIMS_SESSION_NAME" default:"_forward_auth_claims" description:"Name of the claims session"`
+	DefaultAction          string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
+	Domains                CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
+	LifetimeString         int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
+	Path                   string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
+	SecretString           string               `long:"secret" env:"SECRET" description:"Secret used for signing the cookie (required)" json:"-"`
+	Whitelist              CommaSeparatedList   `long:"whitelist" env:"WHITELIST" description:"Only allow given email addresses, can be set multiple times"`
+	EnableImpersonation    bool                 `long:"enable-impersonation" env:"ENABLE_IMPERSONATION" description:"Indicates that impersonation headers should be set on successful auth"`
+	ForwardTokenHeaderName string               `long:"forward-token-header-name" env:"FORWARD_TOKEN_HEADER_NAME" description:"Header name to forward the raw ID token in (won't forward token if empty)"`
+	ForwardTokenPrefix     string               `long:"forward-token-prefix" env:"FORWARD_TOKEN_PREFIX" default:"Bearer " description:"Prefix string to add before the forwarded ID token"`
+	Rules                  map[string]*Rule     `long:"rules.<name>.<param>" description:"Rule definitions, param can be: \"action\" or \"rule\""`
+	GroupClaimPrefix       string               `long:"group-claim-prefix" env:"GROUP_CLAIM_PREFIX" default:"oidc:" description:"prefix oidc group claims with this value"`
+	EncryptionKeyString    string               `long:"encryption-key" env:"ENCRYPTION_KEY" description:"Encryption key used to encrypt the cookie (required)" json:"-"`
+	GroupsAttributeName    string               `long:"groups-attribute-name" env:"GROUPS_ATTRIBUTE_NAME" default:"groups" description:"Map the correct attribute that contain the user groups"`
 
 	// Filled during transformations
 	OIDCContext         context.Context
 	OIDCProvider        *oidc.Provider
 	Lifetime            time.Duration
 	ServiceAccountToken string
-
-	// Flags
-	EnableV3URLPatternMatching bool `long:"enable-v3-url-pattern-matching" env:"ENABLE_V3_URL_PATTERN_MATCHING" description:"Specifies weather to use v3 URL pattern matching as implemented in this commit: https://github.com/turnly/oauth-middleware/commit/36c3eee4c9fa262064848d4ddaca6652b96763b5"`
 }
 
 // NewConfig loads config from provided args or uses os.Args if nil
@@ -97,7 +82,7 @@ func NewConfig(args []string) (*Config, error) {
 	// See https://github.com/coreos/go-oidc/blob/8d771559cf6e5111c9b9159810d0e4538e7cdc82/oidc.go#L43-L53
 	c.OIDCContext = oidc.ClientContext(context.Background(), &http.Client{})
 
-	log = internallog.NewDefaultLogger(c.LogLevel, c.LogFormat)
+	log = logger.NewDefaultLogger(c.LogLevel, c.LogFormat)
 	return &c, err
 }
 
@@ -232,18 +217,6 @@ func (c *Config) Validate() {
 	}
 
 	c.Lifetime = time.Second * time.Duration(c.LifetimeString)
-
-	// get service account token
-	if c.EnableImpersonation {
-		t, err := ioutil.ReadFile(c.ServiceAccountTokenPath)
-		if err != nil {
-			log.Fatalf("impersonation is enabled, but failed to read %s : %v", c.ServiceAccountTokenPath, err)
-		}
-		c.ServiceAccountToken = strings.TrimSuffix(string(t), "\n")
-	}
-	if c.EnableV3URLPatternMatching {
-		features.EnableV3URLPatternMatchin()
-	}
 }
 
 // LoadOIDCProviderConfiguration loads the configuration of OpenID Connect provider

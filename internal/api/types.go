@@ -1,4 +1,4 @@
-package v1alpha1
+package api
 
 type UserInfo struct {
 	Username string   `json:"username"`
