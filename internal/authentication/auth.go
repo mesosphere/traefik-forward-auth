@@ -141,6 +141,32 @@ func (a *Authenticator) MakeNameCookie(r *http.Request, name string) *http.Cooki
 	}
 }
 
+// ClearAuthCookie clears the auth cookie
+func (a *Authenticator) ClearAuthCookie(r *http.Request) *http.Cookie {
+	return &http.Cookie{
+		Name:     a.config.CookieName,
+		Value:    "",
+		Path:     "/",
+		Domain:   a.GetCookieDomain(r),
+		HttpOnly: true,
+		Secure:   false,
+		Expires:  time.Now().Local().Add(time.Hour * -1),
+	}
+}
+
+// ClearNameCookie clears the name cookie
+func (a *Authenticator) ClearNameCookie(r *http.Request) *http.Cookie {
+	return &http.Cookie{
+		Name:     a.config.UserCookieName,
+		Value:    "",
+		Path:     "/",
+		Domain:   a.GetCookieDomain(r),
+		HttpOnly: true,
+		Secure:   false,
+		Expires:  time.Now().Local().Add(time.Hour * -1),
+	}
+}
+
 // MakeCSRFCookie creates a CSRF cookie (used during login only)
 func (a *Authenticator) MakeCSRFCookie(r *http.Request, nonce string) *http.Cookie {
 	return &http.Cookie{
