@@ -95,6 +95,8 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 		"X-Forwarded-Host":   r.Header.Get("X-Forwarded-Host"),
 		"X-Forwarded-Prefix": r.Header.Get("X-Forwarded-Prefix"),
 		"X-Forwarded-Uri":    r.Header.Get("X-Forwarded-Uri"),
+		"X-CSRFToken":        r.Header.Get("X-CSRFToken"),
+		"X-Requested-With":   r.Header.Get("X-Requested-With"),
 	})
 
 	// Modify request
@@ -227,6 +229,9 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		if s.config.ForwardTokenHeaderName != "" && id.Token != "" {
 			w.Header().Add(s.config.ForwardTokenHeaderName, s.config.ForwardTokenPrefix+id.Token)
 		}
+
+		w.Header().Add("X-CSRFToken", r.Header.Get("X-CSRFToken"));
+		w.Header().Add("X-Requested-With", r.Header.Get("X-Requested-With"));
 
 		w.WriteHeader(200)
 	}
