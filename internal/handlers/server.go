@@ -230,7 +230,7 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 
 		// Get all headers that we want to forward from the original request
 		// by reading the config
-		headers := strings.Split(s.config.ForwardedHeaders, ",")
+		headers := strings.Split(s.config.ForwardHeaders, ",")
 
 		// Forward headers
 		for _, header := range headers {
