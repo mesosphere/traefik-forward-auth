@@ -1,8 +1,14 @@
 package cluster
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
 	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
 	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
 	"github.com/mesosphere/traefik-forward-auth/internal/configuration"
@@ -11,10 +17,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"time"
 )
 
 var hmacSecret = "secret"
@@ -130,6 +132,6 @@ func TestClusterStorage_Clear(t *testing.T) {
 	rr := &httptest.ResponseRecorder{}
 	err := cs.Clear(&r, rr)
 	assert.NilError(t, err)
-	_, err = cs.Client.CoreV1().Secrets(cs.Namespace).Get("tfa-secret-12345", metav1.GetOptions{})
+	_, err = cs.Client.CoreV1().Secrets(cs.Namespace).Get(context.Background(), "tfa-secret-12345", metav1.GetOptions{})
 	assert.ErrorContains(t, err, "not found")
 }
