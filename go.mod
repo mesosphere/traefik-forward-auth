@@ -1,6 +1,6 @@
 module github.com/mesosphere/traefik-forward-auth
 
-go 1.12
+go 1.13
 
 require (
 	github.com/VividCortex/gohistogram v1.0.0 // indirect
