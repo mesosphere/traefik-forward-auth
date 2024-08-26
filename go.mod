@@ -6,7 +6,7 @@ require (
 	github.com/containous/traefik v2.0.0-beta1+incompatible
 	github.com/coreos/go-oidc v2.2.1+incompatible
 	github.com/gorilla/securecookie v1.1.2
-	github.com/gorilla/sessions v1.3.0
+	github.com/gorilla/sessions v1.4.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
 	github.com/thomseddon/go-flags v1.4.1-0.20190507184247-a3629c504486
