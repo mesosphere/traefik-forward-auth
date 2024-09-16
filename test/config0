@@ -3,3 +3,5 @@ csrf-cookie-name=inicsrfcookiename
 url-path=one
 rule.1.action=allow
 rule.1.rule=PathPrefix(`/one`)
+cookie-domain=example.com
+cookie-domain=example2.com
