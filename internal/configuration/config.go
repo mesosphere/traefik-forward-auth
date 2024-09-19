@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/oauth2"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -30,6 +31,7 @@ var (
 
 // Config holds app configuration
 type Config struct {
+	AuthStyle string `long:"auth-style" env:"AUTH_STYLE" default:"auto-detect" choice:"auto-detect" choice:"header" choice:"params" description:"Optionally choose the authentication style of the OAuth2 library."`
 	LogLevel  string `long:"log-level" env:"LOG_LEVEL" default:"warn" choice:"trace" choice:"debug" choice:"info" choice:"warn" choice:"error" choice:"fatal" choice:"panic" description:"Log level"`
 	LogFormat string `long:"log-format"  env:"LOG_FORMAT" default:"text" choice:"text" choice:"json" choice:"pretty" description:"Log format"`
 
@@ -131,6 +133,17 @@ func (c *Config) parseFlags(args []string) error {
 	}
 
 	return nil
+}
+
+func (c *Config) ParseAuthStyle() oauth2.AuthStyle {
+	switch c.AuthStyle {
+	case "header":
+		return oauth2.AuthStyleInHeader
+	case "params":
+		return oauth2.AuthStyleInParams
+	default:
+		return oauth2.AuthStyleAutoDetect
+	}
 }
 
 func (c *Config) parseUnknownFlag(option string, arg flags.SplitArgument, args []string) ([]string, error) {
