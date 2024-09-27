@@ -1,16 +1,18 @@
 package cluster
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
 	"math/rand"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/mesosphere/traefik-forward-auth/internal/authentication"
 
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -54,7 +56,8 @@ func NewClusterStore(
 	namespace,
 	hmacSecret string,
 	expiry, cacheTTL time.Duration,
-	authenticator *authentication.Authenticator) *ClusterStorage {
+	authenticator *authentication.Authenticator,
+) *ClusterStorage {
 	cs := &ClusterStorage{
 		Client:        client,
 		Namespace:     namespace,
@@ -186,14 +189,14 @@ func (cs *ClusterStorage) storeUserInfo(claimId string, info *v1alpha1.UserInfo)
 		},
 	}
 
-	if _, err := cs.Client.CoreV1().Secrets(cs.Namespace).Create(s); err != nil {
+	if _, err := cs.Client.CoreV1().Secrets(cs.Namespace).Create(context.Background(), s, metav1.CreateOptions{}); err != nil {
 		return fmt.Errorf("%v: %w", SecretError("error creating secret"), err)
 	}
 	return nil
 }
 
 func (cs *ClusterStorage) getSecrets() (*corev1.SecretList, error) {
-	return cs.Client.CoreV1().Secrets(cs.Namespace).List(metav1.ListOptions{
+	return cs.Client.CoreV1().Secrets(cs.Namespace).List(context.Background(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=true", storage.ClaimsLabel),
 	})
 }
@@ -225,7 +228,7 @@ func (cs *ClusterStorage) deleteClaimsSecret(claimsId string) error {
 	}
 
 	if err := cs.Client.CoreV1().Secrets(secret.Namespace).Delete(
-		secret.Name, &metav1.DeleteOptions{}); err != nil {
+		context.Background(), secret.Name, metav1.DeleteOptions{}); err != nil {
 		return fmt.Errorf("error deleting secret: %w", err)
 	}
 	return nil
@@ -250,7 +253,7 @@ func (cs *ClusterStorage) deleteExpiredSecrets() error {
 			}
 
 			if err := cs.Client.CoreV1().Secrets(cs.Namespace).Delete(
-				secret.Name, &metav1.DeleteOptions{}); err != nil {
+				context.Background(), secret.Name, metav1.DeleteOptions{}); err != nil {
 				logger.Errorf("error deleting expired secret %s/%s: %s", cs.Namespace, secret.Name, err)
 			}
 		}
