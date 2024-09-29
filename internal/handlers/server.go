@@ -228,6 +228,15 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 			w.Header().Add(s.config.ForwardTokenHeaderName, s.config.ForwardTokenPrefix+id.Token)
 		}
 
+		// Get all headers that we want to forward from the original request
+		// by reading the config
+		headers := strings.Split(s.config.ForwardHeaders, ",")
+
+		// Forward headers
+		for _, header := range headers {
+			w.Header().Add(header, r.Header.Get(header))
+		}
+
 		w.WriteHeader(200)
 	}
 }
