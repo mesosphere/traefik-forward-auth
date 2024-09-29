@@ -60,6 +60,7 @@ type Config struct {
 	GroupClaimPrefix        string               `long:"group-claim-prefix" env:"GROUP_CLAIM_PREFIX" default:"oidc:" description:"prefix oidc group claims with this value"`
 	EncryptionKeyString     string               `long:"encryption-key" env:"ENCRYPTION_KEY" description:"Encryption key used to encrypt the cookie (required)" json:"-"`
 	GroupsAttributeName     string               `long:"groups-attribute-name" env:"GROUPS_ATTRIBUTE_NAME" default:"groups" description:"Map the correct attribute that contain the user groups"`
+	ExtraClaims             map[string]string    `long:"extra-claims" env:"EXTRA_CLAIMS" description:"List of extra claims in the jwt to pass as headers. Format is 'Header-Name:claim-name'" env-delim:","`
 
 	// RBAC
 	EnableRBAC              bool               `long:"enable-rbac" env:"ENABLE_RBAC" description:"Indicates that RBAC support should be enabled"`
