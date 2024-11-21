@@ -38,6 +38,8 @@ func TestConfigParseArgs(t *testing.T) {
 	assert := assert.New(t)
 	c, err := NewConfig([]string{
 		"--cookie-name=cookiename",
+		"--cookie-domain=example.com",
+		"--cookie-domain=example2.com",
 		"--csrf-cookie-name", "\"csrfcookiename\"",
 		"--rule.1.action=allow",
 		"--rule.1.rule=PathPrefix(`/one`)",
@@ -61,6 +63,12 @@ func TestConfigParseArgs(t *testing.T) {
 			Rule:   "Host(`two.com`) && Path(`/two`)",
 		},
 	}, c.Rules)
+
+	// Check cookie domain
+	if assert.Len(c.CookieDomains, 2, "there must be 2 cookie domains") {
+		assert.Equal("example.com", c.CookieDomains[0].Domain, "first cookie domain should be read from environment")
+		assert.Equal("example2.com", c.CookieDomains[1].Domain, "second cookie domain should be read from environment")
+	}
 }
 
 func TestConfigParseUnknownFlags(t *testing.T) {
@@ -116,6 +124,10 @@ func TestConfigParseIni(t *testing.T) {
 			Rule:   "Host(`two.com`) && Path(`/two`)",
 		},
 	}, c.Rules)
+	if assert.Len(c.CookieDomains, 2, "there must be 2 cookie domains") {
+		assert.Equal("example.com", c.CookieDomains[0].Domain, "first cookie domain should be read from environment")
+		assert.Equal("example2.com", c.CookieDomains[1].Domain, "second cookie domain should be read from environment")
+	}
 }
 
 func TestConfigParseEnvironment(t *testing.T) {
@@ -127,6 +139,31 @@ func TestConfigParseEnvironment(t *testing.T) {
 	assert.Equal("env_cookie_name", c.CookieName, "variable should be read from environment")
 
 	os.Unsetenv("COOKIE_NAME")
+}
+
+func TestConfigParseCookieDomainFromEnvironment(t *testing.T) {
+	assert := assert.New(t)
+	os.Setenv("COOKIE_DOMAIN", "example.com,example2.com")
+	c, err := NewConfig([]string{})
+	assert.Nil(err)
+
+	if assert.Len(c.CookieDomains, 2, "there must be 2 cookie domains") {
+		assert.Equal("example.com", c.CookieDomains[0].Domain, "first cookie domain should be read from environment")
+		assert.Equal("example2.com", c.CookieDomains[1].Domain, "second cookie domain should be read from environment")
+	}
+
+	os.Unsetenv("COOKIE_DOMAIN")
+}
+
+func TestConfigParseScopeFromEnvironment(t *testing.T) {
+	assert := assert.New(t)
+	os.Setenv("SCOPE", "openid email")
+	c, err := NewConfig([]string{})
+	assert.Nil(err)
+
+	assert.Equal([]string{"openid", "email"}, c.Scope, "scope array should be populated")
+
+	os.Unsetenv("SCOPE")
 }
 
 func TestConfigTransformation(t *testing.T) {
