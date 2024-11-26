@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: traefik-forward-auth
+  name: traefik-forward-auth
+  namespace: traefik
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traefik-forward-auth
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: traefik-forward-auth
+    spec:
+      containers:
+      - env:
+        - name: DOMAIN
+          value: myemaildomain.com,myotheremaildomain.org
+        - name: CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: traefik-forward-auth-secrets
+              key: client-id
+        - name: CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: traefik-forward-auth-secrets
+              key: client-secret
+        - name: PROVIDER_URI
+          value: https://accounts.google.com
+        - name: SCOPE
+          value: openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile
+        - name: SECRET
+          value: < A RANDOM SECRET STRING  >
+        - name: ENCRYPTION_KEY
+          value: < RANDOM-STRING-MINIMUM-OF-16-CHARS-LONG >
+        - name: LOG_LEVEL
+          value: debug
+        image: mesosphere/traefik-forward-auth:latest
+        imagePullPolicy: Always
+        name: traefik-forward-auth
+        ports:
+        - containerPort: 4181
+          protocol: TCP
+        resources: {}
