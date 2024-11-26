@@ -1,6 +1,7 @@
 package configuration
 
 import (
+	"golang.org/x/oauth2"
 	"os"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ func TestConfigDefaults(t *testing.T) {
 	assert.Equal("text", c.LogFormat)
 
 	assert.Equal("", c.AuthHost)
+	assert.Equal("auto-detect", c.AuthStyle)
 	assert.Len(c.CookieDomains, 0)
 	assert.False(c.InsecureCookie)
 	assert.Equal("_forward_auth", c.CookieName)
@@ -37,6 +39,7 @@ func TestConfigDefaults(t *testing.T) {
 func TestConfigParseArgs(t *testing.T) {
 	assert := assert.New(t)
 	c, err := NewConfig([]string{
+		"--auth-style=header",
 		"--cookie-name=cookiename",
 		"--csrf-cookie-name", "\"csrfcookiename\"",
 		"--rule.1.action=allow",
@@ -47,6 +50,7 @@ func TestConfigParseArgs(t *testing.T) {
 	require.Nil(t, err)
 
 	// Check normal flags
+	assert.Equal("header", c.AuthStyle)
 	assert.Equal("cookiename", c.CookieName)
 	assert.Equal("csrfcookiename", c.CSRFCookieName)
 
@@ -116,6 +120,24 @@ func TestConfigParseIni(t *testing.T) {
 			Rule:   "Host(`two.com`) && Path(`/two`)",
 		},
 	}, c.Rules)
+}
+
+func TestConfigParseAuthStyle(t *testing.T) {
+	assert := assert.New(t)
+
+	c1, err := NewConfig([]string{})
+	assert.Nil(err)
+	assert.Equal(oauth2.AuthStyleAutoDetect, c1.ParseAuthStyle())
+
+	c2, err := NewConfig([]string{})
+	c2.AuthStyle = "params"
+	assert.Nil(err)
+	assert.Equal(oauth2.AuthStyleInParams, c2.ParseAuthStyle())
+
+	c3, err := NewConfig([]string{})
+	c3.AuthStyle = "header"
+	assert.Nil(err)
+	assert.Equal(oauth2.AuthStyleInHeader, c3.ParseAuthStyle())
 }
 
 func TestConfigParseEnvironment(t *testing.T) {
