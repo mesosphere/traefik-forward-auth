@@ -284,8 +284,8 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 
 		// Mapping scope
 		var scope []string
-		if s.config.Scope != "" {
-			scope = []string{s.config.Scope}
+		if len(s.config.Scope) > 0 {
+			scope = s.config.Scope
 		} else {
 			scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
 		}
@@ -442,8 +442,8 @@ func (s *Server) authRedirect(logger *logrus.Entry, w http.ResponseWriter, r *ht
 
 	// Mapping scope
 	var scope []string
-	if s.config.Scope != "" {
-		scope = []string{s.config.Scope}
+	if len(s.config.Scope) > 0 {
+		scope = s.config.Scope
 	} else {
 		scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
 	}
