@@ -163,13 +163,14 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		}
 
 		// Authorize user
-		groups, err := s.getGroupsFromSession(r)
+		session, err := s.getSession(r)
 		if err != nil {
-			logger.Errorf("error getting groups from session: %v", err)
+			logger.Errorf("error getting session: %v", err)
 			s.notAuthenticated(logger, w, r)
 			return
 		}
 
+		groups := session.Groups
 		if groups == nil {
 			logger.Info("groups session data is missing, re-authenticating")
 			s.notAuthenticated(logger, w, r)
@@ -210,6 +211,11 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 		logger.Debugf("Allow request from %s", id.Email)
 		for _, headerName := range s.config.EmailHeaderNames {
 			w.Header().Set(headerName, id.Email)
+		}
+
+		// Map extra claims to headers
+		for k, v := range session.ExtraClaims {
+			w.Header().Set(k, v)
 		}
 
 		if s.config.EnableImpersonation {
@@ -375,10 +381,23 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			logger.Warnf("failed to get groups claim from the ID token (GroupsAttributeName: %s)", s.config.GroupsAttributeName)
 		}
 
+		// Save extra claims
+		extraClaims := make(map[string]string)
+		for header_name, claim_name := range s.config.ExtraClaims {
+			claim_value, ok := claims[claim_name]
+			if !ok || (ok && strings.TrimSpace(claim_name) == "") {
+				logger.Warnf("failed to get extra claim from the ID token (ClaimName: %s)", claim_name)
+				continue
+			}
+
+			extraClaims[header_name] = claim_value.(string)
+		}
+
 		if err := s.userinfo.Save(r, w, &v1alpha1.UserInfo{
-			Username: name.(string),
-			Email:    email.(string),
-			Groups:   groups,
+			Username:    name.(string),
+			Email:       email.(string),
+			Groups:      groups,
+			ExtraClaims: extraClaims,
 		}); err != nil {
 			logger.Errorf("error saving session: %v", err)
 			http.Error(w, "Bad Gateway", 502)
@@ -484,13 +503,9 @@ func (s *Server) logger(r *http.Request, rule, msg string) *logrus.Entry {
 	return logger
 }
 
-// getGroupsFromSession returns list of groups present in the session
-func (s *Server) getGroupsFromSession(r *http.Request) ([]string, error) {
-	userInfo, err := s.userinfo.Get(r)
-	if err != nil {
-		return nil, err
-	}
-	return userInfo.Groups, nil
+// getSession returns the current session containing username, email, groups and extra claims
+func (s *Server) getSession(r *http.Request) (*v1alpha1.UserInfo, error) {
+	return s.userinfo.Get(r)
 }
 
 // authzIsBypassed returns true if the request matches a bypass URI pattern
