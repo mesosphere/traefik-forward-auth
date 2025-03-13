@@ -1,7 +1,6 @@
 module github.com/mesosphere/traefik-forward-auth
 
 go 1.23
-
 require (
 	github.com/containous/traefik v2.0.0-beta1+incompatible
 	github.com/coreos/go-oidc v2.2.1+incompatible
@@ -53,13 +52,13 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/vulcand/predicate v1.2.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/mod v0.20.0 // indirect
-	golang.org/x/net v0.28.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/net v0.36.0 // indirect
+	golang.org/x/sync v0.11.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/term v0.29.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
 	golang.org/x/tools v0.24.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
