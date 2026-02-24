@@ -22,20 +22,21 @@ type UserInfoCache struct {
 	TTL time.Duration
 
 	infos map[string]UserInfoRecord
-	lock  sync.Mutex
+	lock  sync.RWMutex
 }
 
 func NewUserInfoCache(ttl time.Duration) *UserInfoCache {
-	infos := make(map[string]UserInfoRecord)
 	return &UserInfoCache{
 		TTL:   ttl,
-		infos: infos,
-		lock:  sync.Mutex{},
+		infos: make(map[string]UserInfoRecord),
 	}
 }
 
 func (uc *UserInfoCache) Get(claimsId string) *v1alpha1.UserInfo {
+	uc.lock.RLock()
 	record, ok := uc.infos[claimsId]
+	uc.lock.RUnlock()
+
 	if !ok {
 		return nil
 	}
@@ -54,8 +55,9 @@ func (uc *UserInfoCache) Save(claimsId string, info *v1alpha1.UserInfo) {
 		created:  time.Now(),
 		userInfo: info,
 	}
+	uc.lock.Lock()
+	defer uc.lock.Unlock()
 	uc.infos[claimsId] = record
-	return
 }
 
 func (uc *UserInfoCache) Delete(claimsId string) {
