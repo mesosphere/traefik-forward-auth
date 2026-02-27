@@ -1,6 +1,6 @@
 module github.com/mesosphere/traefik-forward-auth
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/containous/traefik v2.0.0-beta1+incompatible
@@ -10,7 +10,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 	github.com/thomseddon/go-flags v1.4.1-0.20190507184247-a3629c504486
-	golang.org/x/oauth2 v0.24.0
+	golang.org/x/oauth2 v0.27.0
 	gopkg.in/yaml.v2 v2.4.0
 	gotest.tools v2.2.0+incompatible
 	k8s.io/api v0.31.3
