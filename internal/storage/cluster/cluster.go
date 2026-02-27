@@ -210,8 +210,7 @@ func (cs *ClusterStorage) getSecretByClaim(claimsId string) (*corev1.Secret, err
 	for _, s := range secrets.Items {
 		cid, ok := s.ObjectMeta.Labels[storage.ClaimsIDLabel]
 		if !ok {
-			logger.Errorf(
-				fmt.Sprintf("found managed secret not containing claimID: offender: %s/%s", s.Namespace, s.Name))
+			logger.Errorf("found managed secret not containing claimID: offender: %s/%s", s.Namespace, s.Name)
 			continue
 		}
 		if claimsId == cid {
