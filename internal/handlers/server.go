@@ -290,12 +290,17 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			scope = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
 		}
 
+		endpoint := provider.Endpoint()
 		oauth2Config := oauth2.Config{
 			ClientID:     s.config.ClientID,
 			ClientSecret: s.config.ClientSecret,
 			RedirectURL:  s.authenticator.ComposeRedirectURI(r),
-			Endpoint:     provider.Endpoint(),
-			Scopes:       scope,
+			Endpoint: oauth2.Endpoint{
+				AuthStyle: s.config.ParseAuthStyle(),
+				AuthURL:   endpoint.AuthURL,
+				TokenURL:  endpoint.TokenURL,
+			},
+			Scopes: scope,
 		}
 
 		// Exchange code for token
