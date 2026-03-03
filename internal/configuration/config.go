@@ -46,7 +46,7 @@ type Config struct {
 	UserCookieName          string               `long:"user-cookie-name" env:"USER_COOKIE_NAME" default:"_forward_auth_name" description:"User Cookie Name"`
 	CSRFCookieName          string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
 	ClaimsSessionName       string               `long:"claims-session-name" env:"CLAIMS_SESSION_NAME" default:"_forward_auth_claims" description:"Name of the claims session"`
-	DefaultAction           string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
+	DefaultAction           string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" choice:"allow-with-auth" description:"Default action"`
 	Domains                 CommaSeparatedList   `long:"domain" env:"DOMAIN" description:"Only allow given email domains, can be set multiple times"`
 	LifetimeString          int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
 	Path                    string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
@@ -60,6 +60,7 @@ type Config struct {
 	GroupClaimPrefix        string               `long:"group-claim-prefix" env:"GROUP_CLAIM_PREFIX" default:"oidc:" description:"prefix oidc group claims with this value"`
 	EncryptionKeyString     string               `long:"encryption-key" env:"ENCRYPTION_KEY" description:"Encryption key used to encrypt the cookie (required)" json:"-"`
 	GroupsAttributeName     string               `long:"groups-attribute-name" env:"GROUPS_ATTRIBUTE_NAME" default:"groups" description:"Map the correct attribute that contain the user groups"`
+	ForwardHeaders          string               `long:"forward-headers" env:"FORWARD_HEADERS" default:"" description:"Headers to forward to the upstream, separated by a comma. For example: X-CSRF-Token,X-Requested-With"`
 
 	// RBAC
 	EnableRBAC              bool               `long:"enable-rbac" env:"ENABLE_RBAC" description:"Indicates that RBAC support should be enabled"`
@@ -294,8 +295,8 @@ func (r *Rule) FormattedRule() string {
 
 // Validate validates the rule
 func (r *Rule) Validate() {
-	if r.Action != "auth" && r.Action != "allow" {
-		log.Fatal("invalid rule action, must be \"auth\" or \"allow\"")
+	if r.Action != "auth" && r.Action != "allow" && r.Action != "allow-with-auth" {
+		log.Fatal("invalid rule action, must be \"auth\", \"allow\" or \"allow-with-auth\"")
 	}
 }
 

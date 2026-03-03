@@ -66,9 +66,12 @@ func (s *Server) buildRoutes() {
 	// Let's build a router
 	for name, rule := range s.config.Rules {
 		var err error
-		if rule.Action == "allow" {
+		switch rule.Action {
+		case "allow":
 			err = s.router.AddRoute(rule.FormattedRule(), 1, s.AllowHandler(name))
-		} else {
+		case "allow-with-auth":
+			err = s.router.AddRoute(rule.FormattedRule(), 1, s.AllowWithAuthHandler(name))
+		default:
 			err = s.router.AddRoute(rule.FormattedRule(), 1, s.AuthHandler(name))
 		}
 		if err != nil {
@@ -80,9 +83,12 @@ func (s *Server) buildRoutes() {
 	s.router.Handle(s.config.Path, s.AuthCallbackHandler())
 
 	// Add a default handler
-	if s.config.DefaultAction == "allow" {
+	switch s.config.DefaultAction {
+	case "allow":
 		s.router.NewRoute().Handler(s.AllowHandler("default"))
-	} else {
+	case "allow-with-auth":
+		s.router.NewRoute().Handler(s.AllowWithAuthHandler("default"))
+	default:
 		s.router.NewRoute().Handler(s.AuthHandler("default"))
 	}
 }
@@ -226,6 +232,15 @@ func (s *Server) AuthHandler(rule string) http.HandlerFunc {
 
 		if s.config.ForwardTokenHeaderName != "" && id.Token != "" {
 			w.Header().Add(s.config.ForwardTokenHeaderName, s.config.ForwardTokenPrefix+id.Token)
+		}
+
+		// Get all headers that we want to forward from the original request
+		// by reading the config
+		headers := strings.Split(s.config.ForwardHeaders, ",")
+
+		// Forward headers
+		for _, header := range headers {
+			w.Header().Add(header, r.Header.Get(header))
 		}
 
 		w.WriteHeader(200)
@@ -513,5 +528,69 @@ func (s *Server) makeKubeUserInfo(email string, groups []string) authorization.U
 	return authorization.User{
 		Name:   email,
 		Groups: g,
+	}
+}
+
+// AllowWithAuthHandler handles the request as "allow-with-auth", allowing the request through
+// but forwarding authentication headers if the user is authenticated
+func (s *Server) AllowWithAuthHandler(rule string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		logger := s.logger(r, rule, "Allow with auth request")
+
+		// Get auth cookie
+		c, err := r.Cookie(s.config.CookieName)
+		if err != nil {
+			// Not authenticated, just return 200 without forwarding headers
+			w.WriteHeader(200)
+			return
+		}
+
+		// Validate cookie
+		id, err := s.authenticator.ValidateCookie(r, c)
+		if err != nil {
+			// Invalid cookie, just return 200 without forwarding headers
+			logger.Info(fmt.Sprintf("cookie validation failure: %s", err.Error()))
+			w.WriteHeader(200)
+			return
+		}
+
+		// Validate user
+		valid := s.authenticator.ValidateEmail(id.Email)
+		if !valid {
+			// Invalid user, just return 200 without forwarding headers
+			logger.WithFields(logrus.Fields{
+				"email": id.Email,
+			}).Errorf("Invalid email")
+			w.WriteHeader(200)
+			return
+		}
+
+		// User is authenticated, forward headers
+		for _, headerName := range s.config.EmailHeaderNames {
+			w.Header().Set(headerName, id.Email)
+		}
+
+		if s.config.EnableImpersonation {
+			// Set impersonation headers
+			logger.Debug(fmt.Sprintf("setting authorization token and impersonation headers: email: %s", id.Email))
+			w.Header().Set("Authorization", fmt.Sprintf("Bearer %s", s.config.ServiceAccountToken))
+			w.Header().Set(impersonateUserHeader, id.Email)
+			w.Header().Set(impersonateGroupHeader, "system:authenticated")
+			w.Header().Set("Connection", cleanupConnectionHeader(w.Header().Get("Connection")))
+		}
+
+		if s.config.ForwardTokenHeaderName != "" && id.Token != "" {
+			w.Header().Add(s.config.ForwardTokenHeaderName, s.config.ForwardTokenPrefix+id.Token)
+		}
+
+		// Get all headers that we want to forward from the original request
+		headers := strings.Split(s.config.ForwardHeaders, ",")
+
+		// Forward headers
+		for _, header := range headers {
+			w.Header().Add(header, r.Header.Get(header))
+		}
+
+		w.WriteHeader(200)
 	}
 }
