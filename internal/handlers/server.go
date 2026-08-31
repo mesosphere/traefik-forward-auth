@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	neturl "net/url"
+	"strconv"
 	"strings"
 
 	"github.com/mesosphere/traefik-forward-auth/internal/api/storage/v1alpha1"
@@ -99,10 +101,10 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Modify request
 	r.Method = r.Header.Get("X-Forwarded-Method")
-	r.Host = r.Header.Get("X-Forwarded-Host")
+	r.Host = canonicalizeForwardedHost(r.Header.Get("X-Forwarded-Host"))
 	r.URL, _ = neturl.Parse(authentication.GetRequestURI(r))
 
-	if s.config.AuthHost == "" || len(s.config.CookieDomains) > 0 || r.Host == s.config.AuthHost {
+	if s.config.AuthHost == "" || len(s.config.CookieDomains) > 0 || r.Host == canonicalizeForwardedHost(s.config.AuthHost) {
 		s.router.ServeHTTP(w, r)
 	} else {
 		// Redirect the client to the authHost.
@@ -112,6 +114,32 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 		logger.Debugf("redirect to %v", url.String())
 		http.Redirect(w, r, url.String(), 307)
 	}
+}
+
+func canonicalizeForwardedHost(forwardedHost string) string {
+	if forwardedHost == "" {
+		return ""
+	}
+
+	host := forwardedHost
+	port := ""
+	if splitHost, splitPort, err := net.SplitHostPort(forwardedHost); err == nil {
+		host = splitHost
+		port = splitPort
+	} else if i := strings.LastIndex(forwardedHost, ":"); i > 0 {
+		possiblePort := forwardedHost[i+1:]
+		if _, err := strconv.Atoi(possiblePort); err == nil && !strings.Contains(forwardedHost[:i], ":") {
+			host = forwardedHost[:i]
+			port = possiblePort
+		}
+	}
+
+	canonicalizedHost := strings.TrimSuffix(strings.ToLower(host), ".")
+	if port == "" {
+		return canonicalizedHost
+	}
+
+	return net.JoinHostPort(canonicalizedHost, port)
 }
 
 // AllowHandler handles the request as implicite "allow", returining HTTP 200 response to the Traefik
