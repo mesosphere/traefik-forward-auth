@@ -116,6 +116,11 @@ func (s *Server) RootHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// canonicalizeForwardedHost makes X-Forwarded-Host match the host Traefik
+// already routed on: lowercase and strip one trailing dot (DNS absolute form,
+// e.g. admin.example.com.). The port is split off first so IPv6 literals and
+// ":443" stay intact. Two trailing dots are left as-is; Traefik does not
+// route those, so this service is never consulted.
 func canonicalizeForwardedHost(forwardedHost string) string {
 	if forwardedHost == "" {
 		return ""
@@ -127,6 +132,8 @@ func canonicalizeForwardedHost(forwardedHost string) string {
 		host = splitHost
 		port = splitPort
 	} else if i := strings.LastIndex(forwardedHost, ":"); i > 0 {
+		// Fallback for host:port when SplitHostPort rejects the value.
+		// Skip if the left side already has a colon (unbracketed IPv6).
 		possiblePort := forwardedHost[i+1:]
 		if _, err := strconv.Atoi(possiblePort); err == nil && !strings.Contains(forwardedHost[:i], ":") {
 			host = forwardedHost[:i]
