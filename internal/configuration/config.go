@@ -198,6 +198,8 @@ func handleFlagError(err error) error {
 }
 
 var legacyFileFormat = regexp.MustCompile(`(?m)^([a-z-]+) (.*)$`)
+var hostMatcher = regexp.MustCompile(`Host\(([^)]*)\)`)
+var backtickHostArg = regexp.MustCompile("`([^`]*)`")
 
 func convertLegacyToIni(name string) (io.Reader, error) {
 	b, err := ioutil.ReadFile(name)
@@ -287,9 +289,22 @@ func NewRule() *Rule {
 }
 
 func (r *Rule) FormattedRule() string {
+	canonicalizedHostRule := hostMatcher.ReplaceAllStringFunc(r.Rule, func(m string) string {
+		args := strings.TrimSuffix(strings.TrimPrefix(m, "Host("), ")")
+		canonicalizedArgs := backtickHostArg.ReplaceAllStringFunc(args, func(arg string) string {
+			host := strings.TrimSuffix(strings.TrimPrefix(arg, "`"), "`")
+			return fmt.Sprintf("`%s`", canonicalizeHost(host))
+		})
+		return fmt.Sprintf("Host(%s)", canonicalizedArgs)
+	})
+
 	// Traefik implements their own "Host" matcher and then offers "HostRegexp"
 	// to invoke the mux "Host" matcher. This ensures the mux version is used
-	return strings.ReplaceAll(r.Rule, "Host(", "HostRegexp(")
+	return strings.ReplaceAll(canonicalizedHostRule, "Host(", "HostRegexp(")
+}
+
+func canonicalizeHost(host string) string {
+	return strings.TrimSuffix(strings.ToLower(host), ".")
 }
 
 // Validate validates the rule

@@ -9,8 +9,7 @@ jobs:
   build:
     name: Run Go tests
     runs-on:
-      - self-hosted
-      - medium
+      - self-hosted-nutanix-docker-medium
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
