@@ -160,3 +160,20 @@ func TestConfigCommaSeparatedList(t *testing.T) {
 	assert.Nil(err)
 	assert.Equal("one,two", marshal, "should marshal back to comma sepearated list")
 }
+
+func TestFormattedRuleCanonicalizesHost(t *testing.T) {
+	assert := assert.New(t)
+
+	assert.Equal("HostRegexp(`admin.rig.test`)", (&Rule{Rule: "Host(`admin.rig.test`)"}).FormattedRule())
+	assert.Equal("HostRegexp(`admin.rig.test`)", (&Rule{Rule: "Host(`admin.rig.test.`)"}).FormattedRule())
+	assert.Equal("HostRegexp(`admin.rig.test`)", (&Rule{Rule: "Host(`Admin.Rig.Test.`)"}).FormattedRule())
+	assert.Equal(
+		"HostRegexp(`admin.rig.test`) && Path(`/x`)",
+		(&Rule{Rule: "Host(`admin.rig.test.`) && Path(`/x`)"}).FormattedRule(),
+	)
+	assert.Equal(
+		"HostRegexp(`admin.rig.test`,`other.example.com`)",
+		(&Rule{Rule: "Host(`admin.rig.test.`,`other.example.com.`)"}).FormattedRule(),
+	)
+	assert.Equal("HostRegexp(`admin.rig.test.`)", (&Rule{Rule: "HostRegexp(`admin.rig.test.`)"}).FormattedRule())
+}
