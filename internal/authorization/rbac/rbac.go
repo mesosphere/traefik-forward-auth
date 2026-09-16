@@ -22,7 +22,7 @@ const (
 	// This creates a higher guarantee that your informer’s store has a perfect picture of the resources it is watching.
 	// There are situations where events can be missed entirely and resyncing every so often solves this.
 	// Setting to 0 disables the resync and makes the informer subscribe to individual updates only.
-	defaultResyncDuration =  time.Minute * 10
+	defaultResyncDuration = time.Minute * 10
 )
 
 // Logger is an interface for basic log output
