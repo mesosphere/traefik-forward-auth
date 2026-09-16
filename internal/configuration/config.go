@@ -36,10 +36,10 @@ type Config struct {
 	ProviderURI             string               `long:"provider-uri" env:"PROVIDER_URI" description:"OIDC Provider URI"`
 	ClientID                string               `long:"client-id" env:"CLIENT_ID" description:"Client ID"`
 	ClientSecret            string               `long:"client-secret" env:"CLIENT_SECRET" description:"Client Secret" json:"-"`
-	Scope                   string               `long:"scope" env:"SCOPE" description:"Define scope"`
+	Scope                   []string             `long:"scope" env:"SCOPE" env-delim:" " description:"Define scope. Space delimited when used as env var."`
 	AuthHost                string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
 	Config                  func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
-	CookieDomains           []util.CookieDomain  `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set auth cookie on, can be set multiple times"`
+	CookieDomains           []util.CookieDomain  `long:"cookie-domain" env:"COOKIE_DOMAIN" env-delim:"," description:"Domain to set auth cookie on, can be set multiple times. Comma delimited when used as env var."`
 	InsecureCookie          bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
 	CookieName              string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"ID Cookie Name"`
 	EmailHeaderNames        CommaSeparatedList   `long:"email-header-names" env:"EMAIL_HEADER_NAMES" default:"X-Forwarded-User" description:"Response headers containing the authenticated user's username"`
